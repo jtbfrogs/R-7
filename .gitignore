@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Personal config overrides (do NOT commit — contains your serial port etc.)
+config/local_config.yaml
+
+# Logs
+logs/*.log
+logs/*.log.*
+
+# Model files (too large for git)
+models/
+
+# OpenCV / camera artefacts
+*.avi
+*.mp4
+*.jpg
+*.png
+!docs/images/*.png
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# PyTorch
+*.pt
+*.pth
+*.onnx
+
+# Coverage / testing
+.coverage
+htmlcov/
+.pytest_cache/

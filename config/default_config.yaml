@@ -1,0 +1,222 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  R-7 Droid — Default Configuration
+#  config/default_config.yaml
+#
+#  This file controls nearly everything.  You should NOT need to edit
+#  source code to change basic behaviour — edit this file instead.
+#
+#  Format: YAML  (indentation = 2 spaces, no tabs)
+#  To override: copy this file to config/local_config.yaml and edit that.
+#               local_config.yaml is in .gitignore so personal settings
+#               won't get committed.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ─── Roomba / Serial ────────────────────────────────────────────────────────
+roomba:
+  # Serial port where the USB-UART adapter appears.
+  # Leave as "auto" to let the software detect it automatically.
+  # Override example:  /dev/ttyUSB0
+  port: "auto"
+
+  baud_rate: 115200
+
+  # How long (ms) to hold RTS LOW to wake the Roomba from sleep
+  wakeup_pulse_ms: 150
+
+  # How long (ms) to wait after the wakeup pulse before sending commands
+  wakeup_settle_ms: 500
+
+  # Default operating mode after startup: "safe" or "full"
+  # "safe" is recommended — Roomba stops automatically on cliff/bump events
+  # "full" disables all safety checks — use only for testing
+  startup_mode: "safe"
+
+  # How many times to retry a failed serial write before giving up
+  max_retry_attempts: 3
+
+  # Serial read/write timeout in seconds
+  serial_timeout: 1.0
+
+  # Log every raw byte sent to Roomba (very verbose — use only for debugging)
+  log_raw_bytes: false
+
+# ─── Drive speeds (all values in mm/s, range -500 to +500) ──────────────────
+drive:
+  forward_speed:   300
+  backward_speed: -200
+  turn_speed:      200    # speed of EACH wheel during a point turn
+  search_spin_speed: 150  # slow spin during person-search mode
+  max_speed:       400    # hard cap — clamp any request above this
+
+# ─── Vision / Camera ────────────────────────────────────────────────────────
+vision:
+  camera_index: 0          # 0 = /dev/video0, 1 = second camera, etc.
+  width:  640
+  height: 480
+  fps:    30
+
+  # Detection confidence thresholds (0.0 – 1.0)
+  # Lower = more detections but more false positives
+  # Higher = fewer but more accurate
+  person_confidence: 0.55
+  face_confidence:   0.60
+
+  # If a detected person occupies more than this fraction of frame width,
+  # the droid considers itself "close enough" and stops approaching
+  follow_stop_distance: 0.35
+
+  # If an obstacle fills more than this fraction of the frame, stop moving
+  obstacle_stop_area: 0.20
+
+  # Run expensive detection every N frames to save CPU
+  # Tracking (cheaper) still runs every frame
+  detection_frame_skip: 2
+
+  # Enable/disable vision subsystems individually
+  enable_person_detection: true
+  enable_face_detection:   true
+  enable_obstacle_detection: true
+  enable_motion_tracking:  false   # future feature
+
+# ─── Behaviour timers ───────────────────────────────────────────────────────
+behavior:
+  # How long to search for a person before giving up and free-roaming (seconds)
+  search_timeout_sec: 30
+
+  # Duration of each individual search spin segment (seconds)
+  search_spin_duration_sec: 2.0
+
+  # Free roam: random time range to drive forward between turns (seconds)
+  roam_min_forward_sec: 1.5
+  roam_max_forward_sec: 4.0
+
+  # Free roam: how long to turn at each waypoint (seconds)
+  roam_turn_duration_sec: 1.0
+
+  # Obstacle response: how long to reverse and then turn away (seconds)
+  obstacle_backup_sec:  0.5
+  obstacle_turn_sec:    0.8
+
+# ─── AI / Ollama ────────────────────────────────────────────────────────────
+ai:
+  # Ollama server address — default is localhost
+  host: "http://localhost:11434"
+
+  # Which Ollama model to use.
+  # Recommended small models: tinyllama, phi3:mini, gemma:2b, mistral:7b-q4
+  model: "tinyllama"
+
+  # Request timeout (seconds) — if Ollama doesn't respond in time, skip AI
+  timeout_sec: 10.0
+
+  # Hard cap on AI response length in words.
+  # The droid should NEVER ramble — keep this small.
+  max_response_words: 20
+
+  # Minimum gap between AI-generated speech events (seconds)
+  # Prevents the droid from talking constantly
+  response_cooldown_sec: 3.0
+
+  # Enable/disable AI responses entirely (for testing movement without speech)
+  enabled: true
+
+# ─── Personality ─────────────────────────────────────────────────────────────
+personality:
+  name: "R-7"
+
+  # How often to add a stutter/repeat to a word (0.0 = never, 1.0 = always)
+  # Adds the BMO/D-O awkward charm
+  stutter_chance: 0.15
+
+  # Phrases spoken in different situations.
+  # You can add/remove entries freely — one is chosen at random each time.
+  phrases:
+    startup:
+      - "Initialising… b-beep."
+      - "Hello! I am R-7."
+      - "Systems… okay!"
+      - "Oh! I am awake."
+
+    person_found:
+      - "I found you!"
+      - "Oh! There you are."
+      - "H-hi!"
+      - "Person detected. Hello!"
+
+    person_lost:
+      - "Searching…"
+      - "Where… where did you go?"
+      - "Um. I will look for you."
+      - "H-hello? Anyone?"
+
+    obstacle_detected:
+      - "Uh… obstacle."
+      - "Oh! Something is there."
+      - "Stopping. Obstacle."
+      - "Hmm. I should not go there."
+
+    roaming:
+      - "Exploring!"
+      - "Okay okay okay…"
+      - "Where should I go…"
+      - "Just… looking around."
+
+    docking:
+      - "Going home now."
+      - "Okay. B-bye."
+      - "Docking. Beep."
+
+    confused:
+      - "Hmm?"
+      - "I… do not understand."
+      - "Uh…"
+
+    happy:
+      - "Yay!"
+      - "That is nice."
+      - "Oh! Good."
+
+# ─── Audio / Voice ───────────────────────────────────────────────────────────
+audio:
+  # TTS engine: "pyttsx3" (default, easy) or "piper" (better, needs setup)
+  tts_engine: "pyttsx3"
+
+  # pyttsx3 settings
+  tts_rate_wpm: 165       # speaking speed in words per minute
+  tts_volume:   0.9       # 0.0 to 1.0
+
+  # Voice ID — set to "" to use system default
+  # On Linux, run:  python -c "import pyttsx3; e=pyttsx3.init(); print([v.id for v in e.getProperty('voices')])"
+  tts_voice_id: ""
+
+  # STT engine: "vosk" (offline) or "google" (online, needs internet)
+  stt_engine: "vosk"
+
+  # Vosk model path — download a small model from https://alphacephei.com/vosk/models
+  vosk_model_path: "models/vosk-model-small-en-us"
+
+  # Wake word — say this phrase to activate voice input
+  wake_word: "hey r-seven"
+
+  # Maximum number of speech items to queue up before discarding old ones
+  speech_queue_maxlen: 3
+
+  # Enable/disable voice input entirely
+  voice_input_enabled: false    # set true once STT is configured
+
+  # Enable/disable TTS entirely (for silent testing)
+  tts_enabled: true
+
+# ─── Logging ─────────────────────────────────────────────────────────────────
+logging:
+  # Level: DEBUG | INFO | WARNING | ERROR
+  level: "INFO"
+
+  # Log directory (relative to project root)
+  log_dir: "logs"
+
+  # Maximum size of a single log file before rotation (bytes)
+  max_bytes: 5242880    # 5 MB
+
+  # Number of old log files to keep
+  backup_count: 3
