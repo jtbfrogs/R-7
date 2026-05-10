@@ -82,6 +82,10 @@ class OllamaClient:
         self._enabled  = cfg.get("enabled", True)
 
         self._available: Optional[bool] = None   # cached availability check
+        self._last_check_time: float = 0.0        # when we last checked
+        # Re-check availability this often when Ollama was unavailable.
+        # Allows the droid to pick up Ollama if you start it after launch.
+        self._recheck_interval: float = 30.0      # seconds
 
     # ─── Availability ─────────────────────────────────────────────────────────
 
@@ -95,8 +99,18 @@ class OllamaClient:
         if not self._enabled:
             return False
 
+        now = time.time()
         if self._available is not None and not force_check:
-            return self._available
+            # If we previously confirmed it IS available, trust that result.
+            if self._available:
+                return True
+            # If we previously got False, re-check after the recheck interval
+            # so the droid recovers automatically if Ollama starts later.
+            if now - self._last_check_time < self._recheck_interval:
+                return False
+            log.debug("Ollama recheck interval elapsed — retrying availability check")
+
+        self._last_check_time = now
 
         try:
             # GET /api/tags  →  list of available models
@@ -113,22 +127,27 @@ class OllamaClient:
             found = any(m.startswith(model_base) for m in models)
 
             if found:
-                log.info("Ollama available — model '%s' loaded", self._model)
+                log.info("Ollama available — model '%s' ready", self._model)
                 self._available = True
             else:
                 log.warning(
-                    "Ollama running but model '%s' not found.\n"
-                    "  Available models: %s\n"
-                    "  Install with: ollama pull %s",
-                    self._model, models or "(none)", self._model
+                    "Ollama is running but model '%s' is not loaded.\n"
+                    "  Loaded models : %s\n"
+                    "  Fix           : ollama pull %s\n"
+                    "  Will retry in : %.0f seconds",
+                    self._model,
+                    models or "(none)",
+                    self._model,
+                    self._recheck_interval,
                 )
                 self._available = False
 
         except Exception as e:
             log.warning(
-                "Ollama not available at %s: %s\n"
-                "  Is Ollama running?  Start it with: ollama serve",
-                self._host, e
+                "Ollama not available at %s — %s\n"
+                "  Start it with : ollama serve\n"
+                "  Will retry in : %.0f seconds",
+                self._host, e, self._recheck_interval,
             )
             self._available = False
 

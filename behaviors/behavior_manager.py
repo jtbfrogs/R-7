@@ -138,6 +138,23 @@ class BehaviorManager:
         self._bumper_poll_every = 5
         self._tick_count        = 0
 
+        # Detection debounce: number of consecutive ticks with NO detection
+        # required before leaving FOLLOW_PERSON → SEARCH_PERSON.
+        # At 10 Hz, 8 ticks = 800 ms of continuous absence before we accept
+        # that the person is really gone.  This stops the rapid FOLLOW↔SEARCH
+        # thrashing caused by single-frame detection misses.
+        self._no_detection_streak    = 0
+        self._NO_DETECTION_THRESHOLD = 8   # ticks (≈ 800 ms)
+
+        # AI speech: prompts for each behaviour transition event.
+        # Mapped to situation keys so personality phrases are the fallback.
+        self._AI_PROMPTS = {
+            "person_found":      "You just spotted a person in front of you. Say a short, friendly greeting.",
+            "person_lost":       "You lost sight of the person. Say you are going to look for them.",
+            "roaming":           "You are exploring the room on your own. Say something curious.",
+            "obstacle_detected": "You just bumped into something. React briefly.",
+        }
+
     # ─── Lifecycle ───────────────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -234,16 +251,26 @@ class BehaviorManager:
         # ── 3. STATE TRANSITIONS ─────────────────────────────────────────
         if self._state == BehaviorState.FREE_ROAM:
             if vision.any_target_detected:
+                self._no_detection_streak = 0
                 self._transition_to(BehaviorState.FOLLOW_PERSON, "person_found")
 
         elif self._state == BehaviorState.FOLLOW_PERSON:
             if not vision.any_target_detected:
-                # Target (body or face) just left the frame
-                self._search_start_time = now
-                self._transition_to(BehaviorState.SEARCH_PERSON, "person_lost")
+                # Increment the consecutive-miss counter.
+                # Only switch to SEARCH after NO_DETECTION_THRESHOLD consecutive
+                # misses — prevents thrashing on a single dropped frame.
+                self._no_detection_streak += 1
+                if self._no_detection_streak >= self._NO_DETECTION_THRESHOLD:
+                    self._search_start_time = now
+                    self._no_detection_streak = 0
+                    self._transition_to(BehaviorState.SEARCH_PERSON, "person_lost")
+            else:
+                # Person is visible — reset the miss counter
+                self._no_detection_streak = 0
 
         elif self._state == BehaviorState.SEARCH_PERSON:
             if vision.any_target_detected:
+                self._no_detection_streak = 0
                 self._transition_to(BehaviorState.FOLLOW_PERSON, "person_found")
             elif (now - self._search_start_time) > self._search_timeout:
                 log.info("Search timeout — returning to free roam")
@@ -386,6 +413,7 @@ class BehaviorManager:
     def _transition_to(self, new_state: BehaviorState, speech_key: str) -> None:
         """
         Change state and optionally speak about it.
+        Tries the AI first; falls back to canned personality phrases.
         """
         if new_state == self._state:
             return
@@ -398,9 +426,13 @@ class BehaviorManager:
             self._roam_forward_until = time.time() + jitter(self._roam_min, 0.5)
             self._roam_turning = False
 
-        # Speak the transition
+        # Speak the transition — prefer AI response, fall back to phrase
         if speech_key and self._personality.can_speak():
-            self._speak_bg(speech_key)
+            prompt = self._AI_PROMPTS.get(speech_key)
+            if prompt and self._ai:
+                self._speak_ai_bg(prompt, speech_key)
+            else:
+                self._speak_bg(speech_key)
 
     # ─── Speech helpers ──────────────────────────────────────────────────────
 
@@ -420,18 +452,37 @@ class BehaviorManager:
 
     def _speak_ai(self, prompt: str, situation_fallback: str) -> None:
         """
-        Ask the AI for a response and speak it.
-        Falls back to personality phrases if AI is unavailable.
+        Ask the AI for a response and speak it (BLOCKING — call from a thread).
+        Falls back to personality phrases if AI is unavailable or slow.
         """
         if self._ai and self._ai.is_available():
-            vision = self._vision.get_vision_state()
-            context = build_context(vision=vision, roomba=self._roomba)
-            response = self._ai.ask(prompt, context)
-            if response:
-                filtered = self._personality.filter_ai_response(response)
-                self._tts.speak(filtered)
-                self._personality.mark_spoke()
-                return
+            try:
+                vision   = self._vision.get_vision_state()
+                context  = build_context(vision=vision, roomba=self._roomba)
+                response = self._ai.ask(prompt, context)
+                if response:
+                    filtered = self._personality.filter_ai_response(response)
+                    log.info("AI speaking: %s", filtered)
+                    self._tts.speak(filtered)
+                    self._personality.mark_spoke()
+                    return
+                else:
+                    log.debug("AI returned empty response — using phrase fallback")
+            except Exception as e:
+                log.warning("AI speak error: %s — using phrase fallback", e)
 
         # Fallback to canned phrase
         self._speak(situation_fallback)
+
+    def _speak_ai_bg(self, prompt: str, situation_fallback: str) -> None:
+        """
+        Non-blocking version of _speak_ai — launches in a daemon thread so
+        the behaviour loop is not held up waiting for Ollama to respond.
+        """
+        t = threading.Thread(
+            target  = self._speak_ai,
+            args    = (prompt, situation_fallback),
+            daemon  = True,
+            name    = "AISpeak",
+        )
+        t.start()
