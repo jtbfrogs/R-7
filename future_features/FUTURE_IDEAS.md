@@ -36,6 +36,22 @@ eventually become.  Nothing here is committed to, just explored.
 
 ## Tier 2 — Medium-Term
 
+### HuskyLens AI Camera
+- Replace or supplement the USB webcam with a HuskyLens AI camera module
+- HuskyLens runs object detection, face recognition, and line tracking **on-device**
+  — offloads vision work entirely from the host CPU
+- Communicates via I2C or UART — easy to wire into the existing serial stack
+- Built-in modes useful for R-7:
+  - **Face Recognition** — identify and remember specific people without heavy CV libs
+  - **Object Tracking** — lock onto a person and track them smoothly
+  - **Object Classification** — recognise common objects in the environment
+  - **Line Tracking** — follow tape on the floor for guided navigation
+- Would allow vision to keep running even on lower-powered hardware (Pi Zero etc.)
+- HuskyLens returns bounding boxes + IDs over serial — drop-in replacement for
+  the HOG/MobileNet detection pipeline in `vision/person_detector.py`
+- Cost: ~$35–50 (DFRobot)
+- Companion library: `pip install huskylib` or use raw UART protocol
+
 ### ESP32 Head Movement
 - R-7 gets a physical rotating/tilting head
 - ESP32 receives serial commands from Pi
