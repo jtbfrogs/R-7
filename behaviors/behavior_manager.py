@@ -133,6 +133,11 @@ class BehaviorManager:
         self._obs_turn         = self._cfg.get("obstacle_turn_sec",    OBSTACLE_TURN_SEC)
         self._follow_stop_dist = get_config()["vision"].get("follow_stop_distance", FOLLOW_DISTANCE_THRESHOLD)
 
+        # Bumper polling: reading sensors every tick hammers the serial bus.
+        # Only query bumpers every BUMPER_POLL_EVERY ticks (every 500 ms at 10 Hz).
+        self._bumper_poll_every = 5
+        self._tick_count        = 0
+
     # ─── Lifecycle ───────────────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -192,30 +197,53 @@ class BehaviorManager:
 
     def _tick(self) -> None:
         """Single behaviour iteration — called every 100 ms."""
+        self._tick_count += 1
         vision = self._vision.get_vision_state()
         now    = time.time()
 
-        # ── 1. OBSTACLE CHECK (highest priority) ─────────────────────────
-        if self._check_obstacle(vision):
-            return   # obstacle handling takes over
+        # ── 1. OBSTACLE CHECK (highest priority, throttled) ──────────────
+        # Only poll bumpers every BUMPER_POLL_EVERY ticks to avoid flooding
+        # the serial bus while the Roomba is executing drive commands.
+        if self._tick_count % self._bumper_poll_every == 0:
+            if self._check_obstacle(vision):
+                return   # obstacle handling takes over
 
         # ── 2. UPDATE PERSON TRACKING ────────────────────────────────────
-        if vision.person_detected:
+        # FIX: use any_target_detected (body OR face) not just person_detected.
+        # HOG full-body detection frequently misses people who are sitting,
+        # close to the camera, or partially out of frame.  The face cascade
+        # is far more reliable indoors and should also trigger following.
+        if vision.any_target_detected:
             self._last_person_seen = now
+
+        # Debug log every 10 ticks (~1 s) so you can confirm live detection.
+        # Run with --debug to see these lines in the terminal.
+        if self._tick_count % 10 == 0:
+            log.debug(
+                "Tick %d | state=%-13s | body=%-5s face=%-5s any=%-5s | "
+                "offset=%+.2f  fill=%.2f",
+                self._tick_count,
+                self._state.name,
+                vision.person_detected,
+                vision.face_detected,
+                vision.any_target_detected,
+                vision.target_x_offset,
+                vision.target_fill,
+            )
 
         # ── 3. STATE TRANSITIONS ─────────────────────────────────────────
         if self._state == BehaviorState.FREE_ROAM:
-            if vision.person_detected:
+            if vision.any_target_detected:
                 self._transition_to(BehaviorState.FOLLOW_PERSON, "person_found")
 
         elif self._state == BehaviorState.FOLLOW_PERSON:
-            if not vision.person_detected:
-                # Person just disappeared
+            if not vision.any_target_detected:
+                # Target (body or face) just left the frame
                 self._search_start_time = now
                 self._transition_to(BehaviorState.SEARCH_PERSON, "person_lost")
 
         elif self._state == BehaviorState.SEARCH_PERSON:
-            if vision.person_detected:
+            if vision.any_target_detected:
                 self._transition_to(BehaviorState.FOLLOW_PERSON, "person_found")
             elif (now - self._search_start_time) > self._search_timeout:
                 log.info("Search timeout — returning to free roam")

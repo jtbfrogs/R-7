@@ -36,15 +36,25 @@ class VisionState:
     """
     timestamp:        float = field(default_factory=time.time)
     detection:        Optional[DetectionResult] = None
-    person_detected:  bool  = False
-    face_detected:    bool  = False
-    # Horizontal offset of person from centre: -1.0 (left) to +1.0 (right)
+    person_detected:  bool  = False   # HOG full-body hit
+    face_detected:    bool  = False   # Haar cascade face hit
+    # Horizontal offset of primary target from centre: -1.0 (left) to +1.0 (right)
     target_x_offset:  float = 0.0
-    # How much of the frame the target fills (0.0–1.0)
+    # How much of the frame the primary target fills (0.0–1.0)
     target_fill:      float = 0.0
     # Raw frame (for debug display / streaming)
     frame:            Optional[np.ndarray] = None
     frame_count:      int   = 0
+
+    @property
+    def any_target_detected(self) -> bool:
+        """
+        True when EITHER a full-body OR a face detection exists.
+        Always use this for behaviour decisions — never check person_detected
+        alone.  HOG misses people who are sitting, close to the camera, or
+        partially out of frame.  The face cascade handles those cases.
+        """
+        return self.person_detected or self.face_detected
 
 
 class VisionManager:
@@ -160,6 +170,18 @@ class VisionManager:
                 frame           = frame,
                 frame_count     = self._camera.frame_count,
             )
+
+            # Periodic debug log so you can confirm detection is running
+            # (prints once every ~150 frames ≈ every 5 seconds at 30 fps)
+            if self._camera.frame_count % 150 == 0:
+                log.debug(
+                    "Vision tick | body=%s  face=%s  offset=%.2f  fill=%.2f  frames=%d",
+                    detection.person_detected,
+                    detection.face_detected,
+                    new_state.target_x_offset,
+                    new_state.target_fill,
+                    self._camera.frame_count,
+                )
 
             with self._lock:
                 self._state = new_state

@@ -92,6 +92,22 @@ class DetectionResult:
         return len(self.faces) > 0
 
     @property
+    def any_target_detected(self) -> bool:
+        """
+        True if either a full-body HOG detection OR a face detection exists.
+
+        Use this — not person_detected — for behaviour decisions.
+
+        Why: HOG is trained on upright pedestrians in outdoor scenes.
+        It frequently misses people who are sitting, partially visible,
+        or too close to the camera.  The Haar face cascade works at
+        much shorter range and is far more reliable indoors.
+        Both detections share the same primary_target logic, so following
+        a face is just as valid as following a full body.
+        """
+        return self.person_detected or self.face_detected
+
+    @property
     def best_person(self) -> Optional[BoundingBox]:
         """Return the largest (closest) detected person."""
         if not self.persons:
@@ -277,29 +293,63 @@ class PersonDetector:
         return result
 
     def _detect_persons_hog(self, frame: np.ndarray) -> list[BoundingBox]:
-        """HOG person detection — slower than YOLO but zero dependencies."""
-        # Downscale for speed
-        small = cv2.resize(frame, (320, 240))
+        """HOG person detection — slower than YOLO but zero dependencies.
+
+        Robustness notes
+        ─────────────────
+        detectMultiScale() returns (rects, weights) when detections exist, but
+        its exact shape changed across OpenCV versions:
+
+          Older OpenCV : weights shape (N, 1)  → iterating gives shape-(1,) arrays
+                         so weight[0] worked fine.
+          Newer OpenCV : weights shape (N,)    → iterating gives bare scalars
+                         (0-d arrays), so weight[0] raises IndexError.
+
+        We use float(np.squeeze(weight)) which works for both shapes,
+        plus a guard for the empty-detection case where the call may
+        return an empty tuple () rather than two empty arrays.
+        """
+        # Downscale for speed — HOG is expensive at full resolution
+        small   = cv2.resize(frame, (320, 240))
         scale_x = frame.shape[1] / 320
         scale_y = frame.shape[0] / 240
 
-        rects, weights = self._hog.detectMultiScale(
+        raw = self._hog.detectMultiScale(
             small,
             winStride=(8, 8),
             padding=(4, 4),
             scale=1.05,
         )
 
+        # Guard: no detections → raw is () or (empty_array, empty_array)
+        if raw is None or len(raw) != 2:
+            return []
+        rects, weights = raw
+        if not isinstance(rects, np.ndarray) or len(rects) == 0:
+            return []
+
         boxes = []
-        for (x, y, w, h), weight in zip(rects, weights):
-            conf = float(weight[0])
-            if conf < self._person_conf:
+        for i, (x, y, w, h) in enumerate(rects):
+            # Flatten to scalar regardless of whether weights is (N,) or (N,1)
+            raw_weight = float(np.squeeze(weights[i]))
+
+            # HOG detectMultiScale weights are NOT probabilities.
+            # They are raw SVM margin values, typically 0.0 – 3.0.
+            # We convert to a 0–1 confidence for display, but filter on
+            # a fixed RAW threshold of 0.3 which accepts most real detections
+            # while rejecting the noisiest false positives.
+            # (The config person_confidence value is used for the Torch backend
+            # where scores genuinely are 0–1 probabilities.)
+            HOG_RAW_THRESHOLD = 0.3
+            if raw_weight < HOG_RAW_THRESHOLD:
                 continue
+
+            normalised_conf = min(raw_weight / 3.0, 1.0)   # 0–1 for display
             # Scale coordinates back to original frame size
             boxes.append(BoundingBox(
                 x=int(x * scale_x), y=int(y * scale_y),
                 w=int(w * scale_x), h=int(h * scale_y),
-                confidence=min(conf / 3.0, 1.0),   # normalise weight to 0–1
+                confidence=normalised_conf,
             ))
         return boxes
 
