@@ -68,6 +68,18 @@ class TTSManager:
         self._speaking = False
         self._interrupt_flag = threading.Event()
 
+        # Optional callback fired with the text just before speaking.
+        # The command console hooks this to print spoken lines to the terminal.
+        self._on_speak_callback = None
+
+    def set_speak_callback(self, callback) -> None:
+        """
+        Register a function to call whenever the droid is about to speak.
+        Receives the text string as its only argument.
+        Used by the command console to print spoken lines to the terminal.
+        """
+        self._on_speak_callback = callback
+
     # ─── Lifecycle ───────────────────────────────────────────────────────────
 
     def start(self) -> bool:
@@ -284,6 +296,13 @@ class TTSManager:
             self._interrupt_flag.clear()
             self._speaking = True
             log.debug("Speaking: %s", text[:80])
+
+            # Notify the terminal display (command console hook)
+            if self._on_speak_callback:
+                try:
+                    self._on_speak_callback(text)
+                except Exception:
+                    pass
 
             try:
                 self._say(text)

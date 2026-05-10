@@ -146,6 +146,11 @@ class BehaviorManager:
         self._no_detection_streak    = 0
         self._NO_DETECTION_THRESHOLD = 8   # ticks (≈ 800 ms)
 
+        # _ai_busy is set while the AI is generating OR speaking.
+        # Any canned _speak() call checks this and skips if True.
+        # Prevents personality phrases from interrupting or doubling up on AI output.
+        self._ai_busy = threading.Event()
+
         # AI speech: prompts for each behaviour transition event.
         # Mapped to situation keys so personality phrases are the fallback.
         self._AI_PROMPTS = {
@@ -437,9 +442,12 @@ class BehaviorManager:
     # ─── Speech helpers ──────────────────────────────────────────────────────
 
     def _speak(self, situation: str) -> None:
-        """Speak a personality phrase for the given situation (blocking-ish — queued).
-        Uses acquire_speak_slot() which is atomic — prevents multiple background
-        threads from all passing the cooldown check at the same moment."""
+        """Speak a personality phrase for the given situation.
+        Skipped entirely if the AI is currently generating or speaking —
+        we never want a canned phrase to talk over or queue behind the AI response."""
+        if self._ai_busy.is_set():
+            log.debug("_speak(%s) skipped — AI is busy", situation)
+            return
         if self._personality.acquire_speak_slot():
             phrase = self._personality.react(situation)
             self._tts.speak(phrase)
@@ -454,26 +462,42 @@ class BehaviorManager:
     def _speak_ai(self, prompt: str, situation_fallback: str) -> None:
         """
         Ask the AI for a response and speak it (BLOCKING — call from a thread).
-        Falls back to personality phrases if AI is unavailable or slow.
-        """
-        if self._ai and self._ai.is_available():
-            try:
-                vision   = self._vision.get_vision_state()
-                context  = build_context(vision=vision, roomba=self._roomba)
-                response = self._ai.ask(prompt, context)
-                if response:
-                    filtered = self._personality.filter_ai_response(response)
-                    log.debug("AI response → TTS: %s", filtered)
-                    self._tts.speak(filtered)
-                    self._personality.mark_spoke()
-                    return
-                else:
-                    log.debug("AI returned empty response — phrase fallback")
-            except Exception as e:
-                log.warning("AI speak error: %s — using phrase fallback", e)
 
-        # Fallback to canned phrase
-        self._speak(situation_fallback)
+        Sets _ai_busy for the full duration (generation + playback) so that
+        no canned personality phrase can fire while we are waiting for the
+        model or playing its response.
+
+        Falls back to a canned phrase if AI is unavailable, times out, or
+        returns an empty response — but still holds _ai_busy during fallback
+        so no double-speech occurs.
+        """
+        self._ai_busy.set()
+        try:
+            if self._ai and self._ai.is_available():
+                try:
+                    vision   = self._vision.get_vision_state()
+                    context  = build_context(vision=vision, roomba=self._roomba)
+                    response = self._ai.ask(prompt, context)
+                    if response:
+                        filtered = self._personality.filter_ai_response(response)
+                        log.debug("AI response → TTS: %s", filtered)
+                        self._tts.speak(filtered)
+                        self._personality.mark_spoke()
+                        return
+                    else:
+                        log.debug("AI returned empty — phrase fallback")
+                except Exception as e:
+                    log.warning("AI speak error: %s — phrase fallback", e)
+
+            # Fallback: speak canned phrase directly (slot already acquired
+            # by _transition_to so we bypass acquire_speak_slot here)
+            phrase = self._personality.react(situation_fallback)
+            self._tts.speak(phrase)
+            self._personality.mark_spoke()
+
+        finally:
+            # Always clear the busy flag, even if an exception occurred
+            self._ai_busy.clear()
 
     def _speak_ai_bg(self, prompt: str, situation_fallback: str) -> None:
         """

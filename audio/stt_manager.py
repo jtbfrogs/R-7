@@ -62,6 +62,9 @@ class STTManager:
 
         self._callback: Optional[Callable[[str], None]] = None
         self._interrupt_callback: Optional[Callable[[], None]] = None
+        # Optional callback fired whenever ANY speech fragment is heard.
+        # Used by the command console to print raw heard text to the terminal.
+        self._on_heard_callback: Optional[Callable[[str], None]] = None
         self._thread:   Optional[threading.Thread] = None
         self._running   = False
         self._model     = None
@@ -76,6 +79,14 @@ class STTManager:
     def set_interrupt_callback(self, callback: Callable[[], None]) -> None:
         """Set function to call the INSTANT any speech is detected (for TTS interrupt)."""
         self._interrupt_callback = callback
+
+    def set_heard_callback(self, callback: Callable[[str], None]) -> None:
+        """
+        Register a function called with every recognised speech fragment.
+        The command console uses this to print heard text to the terminal.
+        Fires for ALL speech, not just wake-word-matched commands.
+        """
+        self._on_heard_callback = callback
 
     def start(self) -> bool:
         """Start listening in the background."""
@@ -228,6 +239,13 @@ class STTManager:
         # Fire interrupt on ANY detected speech (TTS should stop)
         if self._interrupt_callback:
             self._interrupt_callback()
+
+        # Show everything heard in terminal (before wake-word filter)
+        if self._on_heard_callback and text:
+            try:
+                self._on_heard_callback(text)
+            except Exception:
+                pass
 
         # Check wake word
         if self._wake_word and self._wake_word not in text:
