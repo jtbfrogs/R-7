@@ -103,11 +103,23 @@ ai:
   host: "http://localhost:11434"
 
   # Which Ollama model to use.
-  # Recommended small models: tinyllama, phi3:mini, gemma:2b, mistral:7b-q4
-  model: "tinyllama"
+  #
+  # Ranking for this robot (best instruction-following first):
+  #   phi3:mini      — 2.2 GB — BEST quality, actually follows rules  (needs 4 GB RAM)
+  #   phi3.5:mini    — 2.2 GB — slightly newer phi3, same size
+  #   llama3.2:3b    — 2.0 GB — very good, fast on CPU              (needs 4 GB RAM)
+  #   gemma2:2b      — 1.6 GB — great short responses               (needs 3 GB RAM)
+  #   qwen2.5:1.5b   — 1.0 GB — surprisingly capable, very small   (needs 2 GB RAM)
+  #   llama3.2:1b    — 1.3 GB — huge upgrade from tinyllama         (needs 2.5 GB RAM)
+  #   tinyllama      — 0.7 GB — current default, poor at following rules
+  #
+  # Pull a model: ollama pull phi3:mini
+  # Test models:  python diagnostics/compare_models.py
+  model: "llama3.2:1b"
 
-  # Request timeout (seconds) — if Ollama doesn't respond in time, skip AI
-  timeout_sec: 10.0
+  # Request timeout (seconds) — larger models take longer on CPU
+  # phi3:mini on CPU: ~8-15s first token.  llama3.2:1b: ~3-6s.
+  timeout_sec: 20.0
 
   # Hard cap on AI response length in words.
   # The droid should NEVER ramble — keep this small.

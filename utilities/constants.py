@@ -117,8 +117,8 @@ OBSTACLE_TURN_SEC           = 0.8     # how long to turn away from obstacle
 
 # ─── AI / Ollama ─────────────────────────────────────────────────────────────
 OLLAMA_HOST             = "http://localhost:11434"
-OLLAMA_DEFAULT_MODEL    = "tinyllama"          # small & fast; swap freely
-OLLAMA_TIMEOUT_SEC      = 10.0
+OLLAMA_DEFAULT_MODEL    = "llama3.2:1b"       # swap via config — see default_config.yaml
+OLLAMA_TIMEOUT_SEC      = 20.0                 # larger models need more time on CPU
 AI_MAX_RESPONSE_WORDS   = 12       # hard cap — keep it short
 AI_COOLDOWN_SEC         = 8.0      # minimum silence between any speech events
 
