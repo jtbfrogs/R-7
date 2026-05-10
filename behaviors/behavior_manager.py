@@ -135,7 +135,7 @@ class BehaviorManager:
 
         # Bumper polling: reading sensors every tick hammers the serial bus.
         # Only query bumpers every BUMPER_POLL_EVERY ticks (every 500 ms at 10 Hz).
-        self._bumper_poll_every = 5
+        self._bumper_poll_every = 2   # poll every 200 ms for faster obstacle response
         self._tick_count        = 0
 
         # Detection debounce: number of consecutive ticks with NO detection
@@ -402,7 +402,7 @@ class BehaviorManager:
                 else:
                     self._roomba.spin_left(0)
                 # Occasionally say something while roaming
-                if random.random() < 0.1 and self._personality.can_speak():
+                if random.random() < 0.04 and self._personality.can_speak():
                     self._speak_bg("roaming")
             else:
                 # Continue forward (send command again in case it was cleared)
@@ -427,7 +427,7 @@ class BehaviorManager:
             self._roam_turning = False
 
         # Speak the transition — prefer AI response, fall back to phrase
-        if speech_key and self._personality.can_speak():
+        if speech_key and self._personality.acquire_speak_slot():
             prompt = self._AI_PROMPTS.get(speech_key)
             if prompt and self._ai:
                 self._speak_ai_bg(prompt, speech_key)
@@ -437,11 +437,12 @@ class BehaviorManager:
     # ─── Speech helpers ──────────────────────────────────────────────────────
 
     def _speak(self, situation: str) -> None:
-        """Speak a personality phrase for the given situation (blocking-ish — queued)."""
-        if self._personality.can_speak():
+        """Speak a personality phrase for the given situation (blocking-ish — queued).
+        Uses acquire_speak_slot() which is atomic — prevents multiple background
+        threads from all passing the cooldown check at the same moment."""
+        if self._personality.acquire_speak_slot():
             phrase = self._personality.react(situation)
             self._tts.speak(phrase)
-            self._personality.mark_spoke()
 
     def _speak_bg(self, situation: str) -> None:
         """Same as _speak but launches in a tiny background thread so it doesn't block."""
@@ -462,12 +463,12 @@ class BehaviorManager:
                 response = self._ai.ask(prompt, context)
                 if response:
                     filtered = self._personality.filter_ai_response(response)
-                    log.info("AI speaking: %s", filtered)
+                    log.debug("AI response → TTS: %s", filtered)
                     self._tts.speak(filtered)
                     self._personality.mark_spoke()
                     return
                 else:
-                    log.debug("AI returned empty response — using phrase fallback")
+                    log.debug("AI returned empty response — phrase fallback")
             except Exception as e:
                 log.warning("AI speak error: %s — using phrase fallback", e)
 

@@ -32,6 +32,7 @@ Speech style rules
 
 import random
 import time
+import threading
 from typing import Optional
 from utilities.logger import get_logger
 from utilities.helpers import truncate_words, weighted_choice
@@ -102,8 +103,10 @@ class Personality:
         # Phrase bank from config
         self._phrases: dict[str, list[str]] = self._p_cfg.get("phrases", {})
 
-        # Cooldown tracking
+        # Cooldown tracking — lock prevents multiple threads passing can_speak()
+        # simultaneously before any of them call mark_spoke().
         self._last_spoke: float = 0.0
+        self._speak_lock = threading.Lock()
 
         log.debug("Personality '%s' loaded (stutter=%.0f%%, max_words=%d, cooldown=%.1fs)",
                   self.name, self._stutter_chance * 100, self._max_words, self._cooldown_sec)
@@ -174,15 +177,33 @@ class Personality:
 
     def can_speak(self) -> bool:
         """
-        Return True if enough time has passed since the last speech event.
-        Use this before triggering any speech to avoid the droid talking constantly.
+        Return True if enough time has passed since the last speech event,
+        AND atomically mark that we intend to speak (so concurrent threads
+        don't all pass the check at the same time).
+
+        Pattern: if personality.can_speak(): ... personality.mark_spoke()
+        is replaced by a single atomic call — use acquire_speak_slot() instead
+        when calling from threads.
         """
         elapsed = time.time() - self._last_spoke
         return elapsed >= self._cooldown_sec
 
+    def acquire_speak_slot(self) -> bool:
+        """
+        Thread-safe version: returns True AND stamps _last_spoke atomically.
+        Use this from background threads so concurrent callers don't both
+        pass the cooldown check before either has updated the timestamp.
+        """
+        with self._speak_lock:
+            if time.time() - self._last_spoke >= self._cooldown_sec:
+                self._last_spoke = time.time()
+                return True
+            return False
+
     def mark_spoke(self) -> None:
-        """Call this after the droid speaks to reset the cooldown timer."""
-        self._last_spoke = time.time()
+        """Manually stamp the cooldown timer (use after speaking)."""
+        with self._speak_lock:
+            self._last_spoke = time.time()
 
     def time_until_can_speak(self) -> float:
         """Returns 0.0 if ready, or the remaining cooldown seconds."""

@@ -176,8 +176,9 @@ class PersonDetector:
 
         # Initialise detectors
         self._hog  = self._init_hog()
-        self._face_cascade = self._init_face_cascade()
-        self._torch_detector = self._init_torch()
+        self._face_cascade    = self._init_face_cascade()
+        self._profile_cascade = self._init_profile_cascade()
+        self._torch_detector  = self._init_torch()
 
         backend = "torch" if self._torch_detector else "hog"
         log.info("Person detector initialised (backend=%s, frame_skip=%d)",
@@ -196,19 +197,33 @@ class PersonDetector:
 
     def _init_face_cascade(self) -> Optional[cv2.CascadeClassifier]:
         """
-        Haar cascade for frontal face detection.
-        Bundled with opencv-python — no extra download needed.
+        Load the frontal face Haar cascade.
+        Bundled with opencv-python — no download needed.
         """
-        # OpenCV ships the cascade XML files with the package
         cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         if not os.path.exists(cascade_path):
-            log.warning("Face cascade XML not found at %s — face detection disabled", cascade_path)
+            log.warning("Face cascade XML not found — face detection disabled")
             return None
         cascade = cv2.CascadeClassifier(cascade_path)
         if cascade.empty():
-            log.warning("Face cascade failed to load — face detection disabled")
+            log.warning("Face cascade failed to load")
             return None
-        log.debug("Face cascade loaded OK")
+        log.debug("Frontal face cascade loaded")
+        return cascade
+
+    def _init_profile_cascade(self) -> Optional[cv2.CascadeClassifier]:
+        """
+        Load the profile (side-face) Haar cascade as a second detector.
+        Catches faces that aren't fully frontal — helps a lot in practice.
+        """
+        cascade_path = cv2.data.haarcascades + "haarcascade_profileface.xml"
+        if not os.path.exists(cascade_path):
+            log.debug("Profile cascade not found — skipping side-face detection")
+            return None
+        cascade = cv2.CascadeClassifier(cascade_path)
+        if cascade.empty():
+            return None
+        log.debug("Profile face cascade loaded")
         return cascade
 
     def _init_torch(self):
@@ -386,26 +401,50 @@ class PersonDetector:
         return boxes
 
     def _detect_faces(self, frame: np.ndarray) -> list[BoundingBox]:
-        """Haar cascade face detection."""
+        """
+        Haar cascade face detection — frontal + profile.
+
+        Tuning notes
+        ─────────────
+        minNeighbors=3  (was 5): fewer neighbours required → more detections,
+            slightly more false positives, but far fewer missed faces indoors.
+        minSize=(25,25)  (was 40,40): catches faces further away / smaller frames.
+        scaleFactor=1.05 (was 1.1): denser image pyramid → better detection at
+            cost of ~20% more CPU.  Fine at our 320×240 downscale.
+        Profile cascade: catches side/3-quarter faces that frontal misses.
+        """
         if self._face_cascade is None:
             return []
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        # Equalise histogram for better detection in varying lighting
-        gray = cv2.equalizeHist(gray)
+        gray = cv2.equalizeHist(gray)   # normalise lighting
 
+        boxes: list[BoundingBox] = []
+
+        # ── Frontal faces ────────────────────────────────────────────────
         raw = self._face_cascade.detectMultiScale(
             gray,
-            scaleFactor  = 1.1,
-            minNeighbors = 5,
-            minSize      = (40, 40),
+            scaleFactor  = 1.05,
+            minNeighbors = 3,
+            minSize      = (25, 25),
         )
+        if isinstance(raw, np.ndarray) and len(raw) > 0:
+            boxes += [BoundingBox(x=int(x), y=int(y), w=int(w), h=int(h))
+                      for (x, y, w, h) in raw]
 
-        if not isinstance(raw, np.ndarray) or len(raw) == 0:
-            return []
+        # ── Profile / side faces ─────────────────────────────────────────
+        if self._profile_cascade is not None:
+            raw_p = self._profile_cascade.detectMultiScale(
+                gray,
+                scaleFactor  = 1.05,
+                minNeighbors = 3,
+                minSize      = (25, 25),
+            )
+            if isinstance(raw_p, np.ndarray) and len(raw_p) > 0:
+                boxes += [BoundingBox(x=int(x), y=int(y), w=int(w), h=int(h))
+                          for (x, y, w, h) in raw_p]
 
-        return [BoundingBox(x=int(x), y=int(y), w=int(w), h=int(h))
-                for (x, y, w, h) in raw]
+        return boxes
 
     # ─── Debug visualisation ──────────────────────────────────────────────────
 

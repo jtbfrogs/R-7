@@ -111,37 +111,86 @@ class TTSManager:
         try:
             import pyttsx3
             engine = pyttsx3.init()
-            engine.setProperty("rate",   self._rate)
+
+            # ── Volume ──────────────────────────────────────────────────
             engine.setProperty("volume", self._volume)
 
+            # ── Rate: default 165 wpm is too fast for espeak's robotic
+            #    voice.  130 wpm is much more intelligible.  Config can
+            #    still override this via tts_rate_wpm.
+            rate = min(self._rate, 140)   # cap at 140 for clarity
+            engine.setProperty("rate", rate)
+
+            # ── Voice selection ──────────────────────────────────────────
             if self._voice_id:
                 engine.setProperty("voice", self._voice_id)
             else:
-                # On Linux: prefer a more natural-sounding voice if available
-                voices = engine.getProperty("voices")
-                if voices:
-                    log.debug("Available voices: %s", [v.id for v in voices])
-                    # Try to find an English voice
-                    for v in voices:
-                        if "english" in v.id.lower() or "en" in v.id.lower():
-                            engine.setProperty("voice", v.id)
-                            log.debug("Selected voice: %s", v.id)
-                            break
+                voices = engine.getProperty("voices") or []
+                log.debug("Available TTS voices: %s", [v.id for v in voices])
+                selected = self._pick_best_voice(voices)
+                if selected:
+                    engine.setProperty("voice", selected)
+                    log.info("TTS voice selected: %s", selected)
+                else:
+                    log.info("Using default TTS voice")
 
             self._engine = engine
-            log.info("pyttsx3 engine ready")
+            log.info("pyttsx3 ready — rate=%d wpm  volume=%.1f", rate, self._volume)
             return True
 
         except ImportError:
             log.error(
                 "pyttsx3 not installed.\n"
-                "  Install: pip install pyttsx3\n"
-                "  Also install espeak: sudo apt install espeak"
+                "  Install : pip install pyttsx3\n"
+                "  espeak  : sudo apt install espeak-ng\n"
+                "  mbrola  : sudo apt install mbrola mbrola-us1 mbrola-us2"
             )
             return False
         except Exception as e:
             log.error("pyttsx3 init failed: %s", e)
             return False
+
+    @staticmethod
+    def _pick_best_voice(voices) -> str | None:
+        """
+        Choose the most intelligible English voice from the list available.
+
+        Priority (best to worst):
+          1. mbrola/us2 or mbrola/us1  — naturalish, male, clear
+          2. mbrola/en1               — British male, decent
+          3. espeak-ng en-us (variant m3 or m7)
+          4. Any voice with "english" in the id
+          5. None (fall back to system default)
+
+        To list your available voices:
+            python3 -c "import pyttsx3; e=pyttsx3.init(); [print(v.id) for v in e.getProperty('voices')]"
+
+        To install mbrola voices (Pop!_OS / Ubuntu):
+            sudo apt install espeak-ng mbrola mbrola-us1 mbrola-us2 mbrola-en1
+        """
+        voice_ids = [v.id for v in voices]
+
+        # Preference list — first match wins
+        preferences = [
+            "mb-us2",   # mbrola US male 2  — clear, natural
+            "mb-us1",   # mbrola US male 1
+            "mb-en1",   # mbrola British male
+            "en-us",    # espeak-ng en-us
+            "english-us",
+            "english",
+        ]
+
+        for pref in preferences:
+            for vid in voice_ids:
+                if pref in vid.lower():
+                    return vid
+
+        # Last resort: any voice containing "en"
+        for vid in voice_ids:
+            if "/en" in vid.lower() or "english" in vid.lower():
+                return vid
+
+        return None
 
     def _init_piper(self) -> bool:
         """Piper TTS — offline neural TTS, much better voice quality."""

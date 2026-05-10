@@ -27,6 +27,7 @@ Reference: https://github.com/ollama/ollama/blob/main/docs/api.md
 """
 
 import json
+import re
 import time
 from typing import Optional
 
@@ -50,15 +51,39 @@ log = get_logger(__name__)
 
 
 # ─── System prompt ────────────────────────────────────────────────────────────
-# This shapes the AI's voice.  Keep it SHORT — small models have tiny context.
-_SYSTEM_PROMPT = """You are R-7, a small friendly robot droid.
-Rules:
-- Reply in 1-2 short sentences MAXIMUM.
-- Never more than 15 words total.
-- Be friendly, slightly awkward, curious.
-- React to what the user or context tells you.
-- Use simple words.
-- No long explanations."""
+# Kept extremely short and directive because small models (tinyllama, phi3:mini)
+# ignore polite suggestions and need hard rules to stay on topic.
+_SYSTEM_PROMPT = (
+    "You are R-7, a tiny robot. "
+    "RULES: Reply with ONE short sentence, max 8 words. "
+    "NO parentheses. NO stage directions. NO 'User:' or 'Robot:' labels. "
+    "NO roleplay. NO storytelling. Just speak as yourself. "
+    "Be friendly and slightly awkward. "
+    "Example good replies: 'Oh hi there!' / 'I found you!' / 'Hmm, okay.'"
+)
+
+# ─── Response sanitiser ────────────────────────────────────────────────────────
+_STRIP_PATTERNS = [
+    (re.compile(r"\([^)]*\)"),   ""),   # (stage directions)
+    (re.compile(r"\[[^\]]*\]"),  ""),   # [bracketed notes]
+    # Character labels anywhere in the text — no ^ anchor so mid-line hits too
+    (re.compile(r"\b(User|Robot|AI|R-7|R7|Human|Assistant)\s*:\s*", re.I), ""),
+    (re.compile(r"[*_`#]"),        ""),   # markdown
+    (re.compile(r"\s{2,}"),       " "),  # collapse extra whitespace
+]
+
+def _sanitise(text: str) -> str:
+    """Strip roleplay artifacts, stage directions, and character labels."""
+    for pattern, replacement in _STRIP_PATTERNS:
+        text = pattern.sub(replacement, text)
+    text = text.strip()
+    # Keep first sentence INCLUDING its terminal punctuation (.!?)
+    # so "Oh! Hi." → "Oh!" not "Oh"
+    m = re.search(r"[.!?]", text)
+    if m and m.start() > 0:
+        return text[: m.end()].strip()
+    # No punctuation found — take up to first newline, or whole string
+    return text.split("\n")[0].strip() or text
 
 
 class OllamaClient:
@@ -198,10 +223,11 @@ class OllamaClient:
             raw_text = data.get("response", "").strip()
             elapsed  = time.time() - start
 
-            log.debug("Ollama responded in %.1fs: %s", elapsed, raw_text[:80])
+            # Sanitise first (strip roleplay/labels), then word-cap
+            cleaned = _sanitise(raw_text)
+            trimmed = truncate_words(cleaned, self._max_words)
 
-            # Truncate to keep the droid from rambling
-            trimmed = truncate_words(raw_text, self._max_words)
+            log.debug("Ollama %.1fs raw=%r  →  cleaned=%r", elapsed, raw_text[:60], trimmed)
             return trimmed
 
         except httpx.TimeoutException:

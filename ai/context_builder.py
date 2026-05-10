@@ -59,13 +59,15 @@ def build_context(
             parts.append("No person visible")
 
     # ── Roomba state ──────────────────────────────────────────────────
+    # Deliberately omit mode names like "safe mode" / "full mode" —
+    # small LLMs treat those as screenplay stage directions and start
+    # generating roleplay text.
     if roomba is not None:
-        parts.append(f"{roomba.state.name.lower()} mode")
         status = roomba.get_status()
         if status["battery_pct"] > 0:
             parts.append(f"battery {status['battery_pct']:.0f}%")
         if status["bump_left"] or status["bump_right"]:
-            parts.append("bump sensor triggered")
+            parts.append("obstacle nearby")
 
     # ── Extra ─────────────────────────────────────────────────────────
     if extra:

@@ -119,8 +119,8 @@ OBSTACLE_TURN_SEC           = 0.8     # how long to turn away from obstacle
 OLLAMA_HOST             = "http://localhost:11434"
 OLLAMA_DEFAULT_MODEL    = "tinyllama"          # small & fast; swap freely
 OLLAMA_TIMEOUT_SEC      = 10.0
-AI_MAX_RESPONSE_WORDS   = 20       # hard cap — droid never rambles
-AI_COOLDOWN_SEC         = 3.0      # minimum silence between AI responses
+AI_MAX_RESPONSE_WORDS   = 12       # hard cap — keep it short
+AI_COOLDOWN_SEC         = 8.0      # minimum silence between any speech events
 
 # ─── Audio ───────────────────────────────────────────────────────────────────
 TTS_RATE_WPM        = 165      # words per minute for pyttsx3
