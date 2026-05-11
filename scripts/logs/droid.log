@@ -1,0 +1,9 @@
+[ROOT] 2026-05-10 21:40:10 DEBUG    Attempting to set voice to: gmw/en
+[ROOT] 2026-05-10 21:40:10 DEBUG    Successfully set voice to: gmw/en
+[ROOT] 2026-05-10 21:41:12 DEBUG    Attempting to set voice to: gmw/en
+[ROOT] 2026-05-10 21:41:12 DEBUG    Successfully set voice to: gmw/en
+[AI] 2026-05-10 21:41:13 INFO     Ollama available — model 'llama3.2:1b' ready
+[ROOT] 2026-05-10 21:41:13 DEBUG    Attempting to set voice to: gmw/en-us
+[ROOT] 2026-05-10 21:41:13 DEBUG    Successfully set voice to: gmw/en-us
+[AI] 2026-05-10 21:41:38 DEBUG    Ollama 4.8s raw="I'm functioning within normal parameters."  →  cleaned="I'm functioning within normal parameters."
+[AI] 2026-05-10 21:41:49 DEBUG    Ollama 2.5s raw="I'm R-7 a small robot I can assist with tasks such as cleani"  →  cleaned="I'm R-7 a small robot I can assist with tasks such as cleaning and maintenance of the space station."
