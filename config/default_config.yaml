@@ -207,14 +207,15 @@ audio:
   # Vosk model path — download a small model from https://alphacephei.com/vosk/models
   vosk_model_path: "models/vosk-model-small-en-us"
 
-  # Wake word — say this phrase to activate voice input
-  wake_word: "hey r-seven"
+  # Wake word — leave blank to respond to everything (no trigger phrase needed).
+  # Set to e.g. "hey r seven" if you want the droid to only respond when called.
+  wake_word: ""
 
   # Maximum number of speech items to queue up before discarding old ones
   speech_queue_maxlen: 3
 
-  # Enable/disable voice input entirely
-  voice_input_enabled: false    # set true once STT is configured
+  # Enable voice input (Vosk STT).  true = always listening at startup.
+  voice_input_enabled: true
 
   # Enable/disable TTS entirely (for silent testing)
   tts_enabled: true
