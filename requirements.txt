@@ -21,13 +21,13 @@ pyttsx3>=2.90          # Offline text-to-speech (needs espeak on Linux)
 # torch>=2.0
 # torchvision>=0.15
 
-# ── Optional: Offline STT (voice input) ───────────────────────────────────────
-# vosk>=0.3.45          # Offline speech recognition
-# sounddevice>=0.4.6    # Microphone input
+# ── STT / voice input ────────────────────────────────────────────────────────
+vosk>=0.3.45              # Offline speech recognition
+sounddevice>=0.4.6        # Microphone input (needs libportaudio2 on Linux)
+# Linux: sudo apt install libportaudio2
 
 # ── Optional: Better TTS ──────────────────────────────────────────────────────
 # piper-tts>=1.2        # Neural TTS (high quality, fast, offline)
 
-# ── Optional: Online STT (also used by test_voice_chat.py) ──────────────────
-SpeechRecognition>=3.10   # pip install SpeechRecognition
-PyAudio>=0.2.13           # pip install pyaudio  (needs portaudio: brew install portaudio)
+# NOTE: PyAudio / SpeechRecognition are NOT used — sounddevice + vosk preferred
+#       (pyaudio has ALSA conflicts on Linux and requires portaudio dev headers)
