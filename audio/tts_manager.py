@@ -264,6 +264,43 @@ class TTSManager:
         except Exception as e:
             log.error("Failed to queue speech: %s", e)
 
+    def speak_sync(self, text: str) -> None:
+        """
+        Speak `text` synchronously — blocks until the phrase has finished.
+
+        Designed for chatbot / REPL scripts where you want to wait for R-7
+        to finish talking before listening again.  Does NOT use the speech
+        queue so it is always immediate.  Lazily initialises the engine if
+        start() has not been called.
+
+        Parameters
+        ----------
+        text : the text to speak
+        """
+        if not self._enabled or not text.strip():
+            return
+
+        # Notify any terminal display hook
+        if self._on_speak_callback:
+            try:
+                self._on_speak_callback(text)
+            except Exception:
+                pass
+
+        # Lazy-init engine (so scripts don't have to call start())
+        if self._engine is None and not self._init_engine():
+            log.error("speak_sync: TTS engine not available")
+            return
+
+        self._interrupt_flag.clear()
+        self._speaking = True
+        try:
+            self._say(text)
+        except Exception as e:
+            log.error("speak_sync error: %s", e)
+        finally:
+            self._speaking = False
+
     def interrupt(self) -> None:
         """
         Stop any current speech immediately and clear the queue.

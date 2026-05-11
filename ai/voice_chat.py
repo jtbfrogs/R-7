@@ -279,6 +279,9 @@ class VoiceChatManager:
 
                 if not user_input:
                     print("  (nothing heard — try again)\n")
+                    # Small yield so the loop doesn’t spin at 100 % CPU
+                    # when the mic is silent for many consecutive cycles.
+                    import time as _t; _t.sleep(0.05)
                     continue
 
                 print(f"\nYou: {user_input}")

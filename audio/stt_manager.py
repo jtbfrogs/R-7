@@ -115,6 +115,114 @@ class STTManager:
             self._thread.join(timeout=3.0)
         log.info("STT manager stopped")
 
+    # ─── One-shot synchronous listen ─────────────────────────────────────────
+
+    def listen_once(self, timeout: float = 8.0) -> "str | None":
+        """
+        Synchronously listen for one complete utterance and return the text.
+
+        • Does NOT require start() to have been called.
+        • Does NOT apply wake-word filtering — the raw transcript is returned.
+        • Returns recognised text (lowercase) or None on silence / timeout.
+
+        Parameters
+        ----------
+        timeout : seconds to wait before giving up (default 8 s)
+        """
+        if self._engine_name == "vosk":
+            return self._listen_once_vosk(timeout)
+        elif self._engine_name == "google":
+            return self._listen_once_google(timeout)
+        log.error("listen_once: unsupported engine '%s'", self._engine_name)
+        return None
+
+    def _listen_once_vosk(self, timeout: float) -> "str | None":
+        """One-shot Vosk listener — opens mic, captures one utterance, closes."""
+        import json
+        import queue as _queue
+        import time
+
+        try:
+            from vosk import KaldiRecognizer
+            import sounddevice as sd
+        except ImportError:
+            log.error("vosk/sounddevice not installed — pip install vosk sounddevice")
+            return None
+
+        # Lazy-init the model if needed (doesn't require start() to have run)
+        if self._model is None:
+            if not self._init_vosk():
+                return None
+
+        rec      = KaldiRecognizer(self._model, 16_000)
+        audio_q: _queue.Queue = _queue.Queue(maxsize=200)  # ~12 s of audio at 8k blocks
+        deadline = time.time() + timeout
+
+        def _cb(indata, frames, time_info, status):
+            if status:
+                log.debug("Audio callback status: %s", status)
+            try:
+                audio_q.put_nowait(bytes(indata))
+            except _queue.Full:
+                pass  # drop oldest-ish data rather than blocking the audio thread
+
+        try:
+            with sd.RawInputStream(
+                samplerate=16_000,
+                blocksize=8_000,
+                dtype="int16",
+                channels=1,
+                callback=_cb,
+            ):
+                while time.time() < deadline:
+                    try:
+                        data = audio_q.get(timeout=0.3)
+                    except _queue.Empty:
+                        continue
+
+                    try:
+                        if rec.AcceptWaveform(data):
+                            result = json.loads(rec.Result())
+                            text   = result.get("text", "").strip().lower()
+                            if text:
+                                return text
+                            # Silence frame — recogniser reset, keep listening
+                    except Exception as e:
+                        log.warning("Vosk AcceptWaveform error: %s", e)
+                        continue
+
+        except Exception as e:
+            log.error("listen_once audio stream error: %s", e)
+            return None
+
+        # Timeout reached — grab any partial text the recogniser has accumulated
+        try:
+            final = json.loads(rec.FinalResult()).get("text", "").strip().lower()
+            return final if final else None
+        except Exception:
+            return None
+
+    def _listen_once_google(self, timeout: float) -> "str | None":
+        """One-shot Google STT listener."""
+        try:
+            import speech_recognition as sr
+        except ImportError:
+            log.error("speech_recognition not installed — pip install SpeechRecognition pyaudio")
+            return None
+
+        recogniser = sr.Recognizer()
+        mic        = sr.Microphone()
+        try:
+            with mic as source:
+                recogniser.adjust_for_ambient_noise(source, duration=0.5)
+                audio = recogniser.listen(
+                    source, timeout=timeout, phrase_time_limit=10.0
+                )
+            return recogniser.recognize_google(audio).lower()
+        except Exception as e:
+            log.debug("listen_once google: %s", e)
+            return None
+
     def _init_engine(self) -> bool:
         """Initialise the configured STT backend."""
         if self._engine_name == "vosk":
@@ -126,7 +234,18 @@ class STTManager:
             return False
 
     def _init_vosk(self) -> bool:
-        """Initialise Vosk offline STT."""
+        """Initialise Vosk offline STT.  Safe to call multiple times."""
+        # If already loaded, just refresh the KaldiRecognizer (cheap)
+        if self._model is not None:
+            try:
+                from vosk import KaldiRecognizer
+                self._recogniser = KaldiRecognizer(self._model, 16000)
+                log.debug("Vosk KaldiRecognizer refreshed (model already loaded)")
+                return True
+            except Exception as e:
+                log.error("Vosk KaldiRecognizer refresh failed: %s", e)
+                return False
+
         try:
             from vosk import Model, KaldiRecognizer
             import sounddevice as sd
@@ -142,6 +261,7 @@ class STTManager:
                 )
                 return False
 
+            log.info("Loading Vosk model from %s …", self._vosk_path)
             self._model = Model(self._vosk_path)
             self._recogniser = KaldiRecognizer(self._model, 16000)
             log.info("Vosk model loaded from %s", self._vosk_path)
@@ -153,6 +273,9 @@ class STTManager:
                 "  Install: pip install vosk sounddevice",
                 e
             )
+            return False
+        except Exception as e:
+            log.error("Vosk init failed: %s", e)
             return False
 
     def _init_google(self) -> bool:
@@ -182,26 +305,54 @@ class STTManager:
         import json
 
         log.debug("Vosk listen loop started")
-        with sd.RawInputStream(
-            samplerate=16000,
-            blocksize=8000,
-            dtype="int16",
-            channels=1,
-        ) as stream:
-            while self._running:
-                data, _ = stream.read(4000)
-                if self._recogniser.AcceptWaveform(bytes(data)):
-                    result = json.loads(self._recogniser.Result())
-                    text   = result.get("text", "").strip().lower()
-                    if text:
-                        log.debug("Vosk heard: %s", text)
-                        self._process_text(text)
-                else:
-                    # Partial result — check for any speech to trigger interrupt
-                    partial = json.loads(self._recogniser.PartialResult())
-                    if partial.get("partial", ""):
-                        if self._interrupt_callback:
-                            self._interrupt_callback()
+        # blocksize controls how many frames are buffered per callback tick.
+        # We read the same size so each stream.read() call drains exactly one
+        # block — giving ~500 ms chunks at 16 kHz which Vosk handles well.
+        BLOCK = 8000
+        # Interrupt is only fired once per utterance start (first partial that
+        # has non-empty text) to avoid hammering the TTS interrupt on every frame.
+        _interrupt_fired = False
+
+        try:
+            with sd.RawInputStream(
+                samplerate=16000,
+                blocksize=BLOCK,
+                dtype="int16",
+                channels=1,
+            ) as stream:
+                while self._running:
+                    try:
+                        data, overflowed = stream.read(BLOCK)
+                        if overflowed:
+                            log.debug("Audio buffer overflowed — some audio lost")
+                    except Exception as e:
+                        log.warning("Audio read error: %s — retrying", e)
+                        import time as _t; _t.sleep(0.1)
+                        continue
+
+                    try:
+                        if self._recogniser.AcceptWaveform(bytes(data)):
+                            result = json.loads(self._recogniser.Result())
+                            text   = result.get("text", "").strip().lower()
+                            _interrupt_fired = False   # reset for next utterance
+                            if text:
+                                log.debug("Vosk heard: %s", text)
+                                self._process_text(text)
+                        else:
+                            # Partial result — fire interrupt ONCE at the start
+                            # of an utterance so TTS stops immediately, but not
+                            # on every frame (avoids a flood of interrupt calls).
+                            if not _interrupt_fired:
+                                partial = json.loads(self._recogniser.PartialResult())
+                                if partial.get("partial", ""):
+                                    _interrupt_fired = True
+                                    if self._interrupt_callback:
+                                        self._interrupt_callback()
+                    except Exception as e:
+                        log.warning("Vosk recognition error: %s", e)
+                        continue
+        except Exception as e:
+            log.error("Vosk listen loop failed: %s", e, exc_info=True)
 
     def _listen_google(self) -> None:
         """Google Web STT loop — listens in chunks."""

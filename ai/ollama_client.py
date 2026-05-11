@@ -33,9 +33,11 @@ from typing import Optional
 
 try:
     import httpx   # faster and cleaner than requests
+    _USING_HTTPX = True
 except ImportError:
     try:
         import requests as httpx   # type: ignore  # fallback
+        _USING_HTTPX = False
     except ImportError:
         raise ImportError(
             "httpx (or requests) required for AI.\n"
@@ -230,13 +232,17 @@ class OllamaClient:
             log.debug("Ollama %.1fs raw=%r  →  cleaned=%r", elapsed, raw_text[:60], trimmed)
             return trimmed
 
-        except httpx.TimeoutException:
-            log.warning("Ollama request timed out after %.1fs", self._timeout)
-            return None
-        except httpx.HTTPStatusError as e:
-            log.error("Ollama HTTP error: %s", e)
-            return None
         except Exception as e:
+            # httpx raises httpx.TimeoutException; requests raises
+            # requests.exceptions.Timeout — catch both via the name.
+            ename = type(e).__name__
+            if "Timeout" in ename or "timeout" in ename.lower():
+                log.warning("Ollama request timed out after %.1fs", self._timeout)
+                return None
+            # HTTP status errors (4xx / 5xx)
+            if "StatusError" in ename or "HTTPError" in ename:
+                log.error("Ollama HTTP error: %s", e)
+                return None
             log.error("Ollama request failed: %s", e)
             self._available = None   # force re-check next time
             return None
