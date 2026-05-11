@@ -8,12 +8,22 @@ behaviour manager, and handles clean shutdown on Ctrl+C or errors.
 
 Usage
 ─────
-    python main.py                         # full autonomous mode
-    python main.py --no-vision             # run without camera
-    python main.py --no-ai                 # run without Ollama
-    python main.py --no-behaviour          # connect + speak, no movement
-    python main.py --port /dev/ttyUSB0     # override serial port
-    python main.py --debug                 # verbose logging
+    python main.py                              # full autonomous mode
+    python main.py --no-vision                  # run without camera
+    python main.py --no-ai                      # run without Ollama
+    python main.py --no-behaviour               # connect + speak, no movement
+    python main.py --port /dev/ttyUSB0          # override serial port
+    python main.py --debug                      # verbose logging
+
+Voice chat modes (Vosk STT + pyttsx3 TTS):
+    python main.py --voice --no-roomba          # voice chat, no hardware needed
+    python main.py --voice --no-roomba --continuous   # always-listening mode
+    python main.py --voice                      # voice + full Roomba hardware
+    python main.py --voice --vosk-model models/vosk-model-en-us-0.22  # large model
+
+First-time voice setup:
+    bash scripts/download_vosk_model.sh         # download the Vosk model (~40 MB)
+    pip install vosk sounddevice pyttsx3        # install voice dependencies
 
 For interactive control:
     python commands/command_console.py
@@ -31,6 +41,7 @@ from roomba.controller          import RoombaController
 from vision.vision_manager      import VisionManager
 from ai.personality             import Personality
 from ai.ollama_client           import OllamaClient
+from ai.voice_chat              import VoiceChatManager
 from audio.tts_manager          import TTSManager
 from audio.stt_manager          import STTManager
 from behaviors.behavior_manager import BehaviorManager, BehaviorState
@@ -68,6 +79,14 @@ def main(args: argparse.Namespace) -> int:
     log.info("R-7 Droid starting up...")
     log.debug("Active config:\n%s", dump_config())
 
+    # ─── Voice-only mode (no Roomba hardware required) ────────────────────────
+    # --continuous always means voice-only (no hardware loop)
+    if args.continuous:
+        args.voice     = True
+        args.no_roomba = True
+    if args.voice and args.no_roomba:
+        return _run_voice_only(args)
+
     # ─── Instantiate subsystems ─────────────────────────────────────────────
     roomba      = RoombaController()
     tts         = TTSManager()
@@ -76,6 +95,7 @@ def main(args: argparse.Namespace) -> int:
     vision:     VisionManager  | None = None
     stt:        STTManager     | None = None
     behavior:   BehaviorManager | None = None
+    voice_chat: VoiceChatManager | None = None
 
     # ─── Shutdown handler ────────────────────────────────────────────────────
     _shutdown_requested = [False]
@@ -121,9 +141,31 @@ def main(args: argparse.Namespace) -> int:
         else:
             log.warning("AI unavailable — personality phrases only")
 
-    # ─── Start STT ───────────────────────────────────────────────────────────
-    if cfg["audio"].get("voice_input_enabled", False):
-        log.info("Starting STT (voice input)...")
+    # ─── Start STT / Voice Chat ──────────────────────────────────────────────
+    if args.voice:
+        log.info("Starting voice chat (Vosk STT + pyttsx3 TTS)...")
+        voice_chat = VoiceChatManager(
+            vosk_model_path = args.vosk_model,
+            tts_rate        = 155,
+            ai_client       = ai_client,
+            personality     = personality,
+            use_wake_word   = False,   # no wake word needed in hardware mode
+        )
+        if not voice_chat.init():
+            log.error("Voice chat init failed — continuing without voice input")
+            voice_chat = None
+        else:
+            if not voice_chat.start_background(
+                tts_manager        = tts,
+                interrupt_callback = tts.interrupt,
+            ):
+                log.warning("Voice chat background start failed")
+                voice_chat = None
+            else:
+                log.info("Voice chat running (always listening)")
+    elif cfg["audio"].get("voice_input_enabled", False):
+        # Legacy config-driven path (wake word, background thread)
+        log.info("Starting STT (voice input, config-driven)...")
         stt = STTManager()
         stt.set_interrupt_callback(tts.interrupt)
 
@@ -188,6 +230,8 @@ def main(args: argparse.Namespace) -> int:
         behavior.stop()
     if vision:
         vision.stop()
+    if voice_chat:
+        voice_chat.stop()
     if stt:
         stt.stop()
     tts.stop()
@@ -195,6 +239,33 @@ def main(args: argparse.Namespace) -> int:
 
     log.info("R-7 shutdown complete")
     print(_c("\n  R-7 offline. Goodbye!\n", "cyan"))
+    return 0
+
+
+# ─── Voice-only entry point ───────────────────────────────────────────────────
+
+def _run_voice_only(args: argparse.Namespace) -> int:
+    """
+    Run a standalone interactive voice chat session — no Roomba required.
+    Activated by:  python main.py --voice --no-roomba
+    """
+    print(_c("\n  R-7 Voice Chat Mode  (no hardware)\n", "cyan"))
+
+    personality = Personality()
+    ai_client   = OllamaClient()
+
+    vc = VoiceChatManager(
+        vosk_model_path = args.vosk_model,
+        tts_rate        = 155,
+        ai_client       = ai_client,
+        personality     = personality,
+        use_wake_word   = False,
+    )
+
+    if not vc.init():
+        return 1
+
+    vc.run_interactive(continuous=args.continuous)
     return 0
 
 
@@ -209,6 +280,12 @@ def _parse_args() -> argparse.Namespace:
             "  python main.py\n"
             "  python main.py --no-vision\n"
             "  python main.py --port /dev/ttyUSB0 --debug\n"
+            "  python main.py --voice --no-roomba          # voice chat, no hardware\n"
+            "  python main.py --voice --no-roomba --continuous\n"
+            "  python main.py --voice                      # voice + Roomba hardware\n"
+            "\nFirst-time voice setup:\n"
+            "  bash scripts/download_vosk_model.sh\n"
+            "  pip install vosk sounddevice pyttsx3\n"
             "\nSubsystem tests:\n"
             "  python roomba/roomba_test.py    (serial/movement testing)\n"
             "  python commands/command_console.py  (full interactive control)\n"
@@ -220,6 +297,25 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--no-ai",        action="store_true", help="Disable Ollama AI")
     parser.add_argument("--no-behaviour", action="store_true", help="No autonomous movement")
     parser.add_argument("--debug",        action="store_true", help="Verbose debug logging")
+    # ── Voice options ─────────────────────────────────────────────────────
+    parser.add_argument(
+        "--voice", action="store_true",
+        help="Enable voice I/O (Vosk STT + pyttsx3 TTS)",
+    )
+    parser.add_argument(
+        "--no-roomba", action="store_true",
+        help="Skip Roomba hardware — run voice chat / AI only",
+    )
+    parser.add_argument(
+        "--continuous", action="store_true",
+        help="[voice] Always-listening mode — no Enter key needed (implies --no-roomba)",
+    )
+    parser.add_argument(
+        "--vosk-model",
+        default="models/vosk-model-small-en-us",
+        metavar="PATH",
+        help="[voice] Path to Vosk model directory (default: models/vosk-model-small-en-us)",
+    )
     return parser.parse_args()
 
 
