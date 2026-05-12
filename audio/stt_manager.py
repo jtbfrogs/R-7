@@ -53,6 +53,13 @@ class STTManager:
         stt.stop()
     """
 
+    # Minimum RMS energy a chunk must have before being sent to Vosk.
+    # Prevents hallucinations from silence and stops monitor/loopback
+    # sources (PulseAudio/PipeWire) being mistaken for real microphone input.
+    # Range: 0-32768 (16-bit audio).  200 = very quiet room threshold.
+    # Raise this if you're still getting false triggers in a noisy environment.
+    SILENCE_THRESHOLD = 200
+
     def __init__(self):
         cfg = get_config()["audio"]
         self._engine_name   = cfg.get("stt_engine", "vosk")
@@ -299,6 +306,16 @@ class STTManager:
         elif self._engine_name == "google":
             self._listen_google()
 
+    @staticmethod
+    def _rms(data: bytes) -> float:
+        """Return the RMS amplitude of a 16-bit PCM byte buffer."""
+        import array as _array
+        import math as _math
+        samples = _array.array("h", data)
+        if not samples:
+            return 0.0
+        return _math.sqrt(sum(s * s for s in samples) / len(samples))
+
     def _listen_vosk(self) -> None:
         """Vosk streaming microphone loop."""
         import sounddevice as sd
@@ -312,6 +329,14 @@ class STTManager:
         # Interrupt is only fired once per utterance start (first partial that
         # has non-empty text) to avoid hammering the TTS interrupt on every frame.
         _interrupt_fired = False
+
+        # Log which device we're actually recording from so it's obvious
+        # in the logs if the system has fallen back to a built-in / monitor source.
+        try:
+            dev = sd.query_devices(kind="input")
+            log.info("STT using input device: '%s'", dev.get("name", "unknown"))
+        except Exception:
+            pass
 
         try:
             with sd.RawInputStream(
@@ -330,8 +355,13 @@ class STTManager:
                         import time as _t; _t.sleep(0.1)
                         continue
 
+                    # ── Energy gate — skip silence / monitor source noise ──
+                    raw = bytes(data)
+                    if self._rms(raw) < self.SILENCE_THRESHOLD:
+                        continue
+
                     try:
-                        if self._recogniser.AcceptWaveform(bytes(data)):
+                        if self._recogniser.AcceptWaveform(raw):
                             result = json.loads(self._recogniser.Result())
                             text   = result.get("text", "").strip().lower()
                             _interrupt_fired = False   # reset for next utterance
