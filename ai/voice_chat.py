@@ -161,8 +161,13 @@ class VoiceChatManager:
         cfg["audio"]["stt_engine"]          = "vosk"
         cfg["audio"]["vosk_model_path"]     = self._vosk_model_path
         cfg["audio"]["voice_input_enabled"] = True
-        # Disable wake word for interactive mode (background can keep it)
-        if not self._use_wake_word:
+        # Set wake word in config so STTManager picks it up correctly.
+        # Explicitly set either way — don't rely on the config default
+        # being non-empty (it may be "" which is falsy and bypasses the check).
+        from utilities.constants import WAKE_WORD as _WAKE_WORD
+        if self._use_wake_word:
+            cfg["audio"]["wake_word"] = _WAKE_WORD
+        else:
             cfg["audio"]["wake_word"] = ""
 
         from audio.stt_manager import STTManager

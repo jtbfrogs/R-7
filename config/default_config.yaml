@@ -210,7 +210,7 @@ audio:
 
   # Wake word — leave blank to respond to everything (no trigger phrase needed).
   # Set to e.g. "hey r seven" if you want the droid to only respond when called.
-  wake_word: ""
+  wake_word: "hey r-seven"
 
   # Maximum number of speech items to queue up before discarding old ones
   speech_queue_maxlen: 3
