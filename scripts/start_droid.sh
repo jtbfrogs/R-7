@@ -8,7 +8,7 @@
 #   --continuous   : no Enter key needed, truly always-on
 #
 # You can override everything by passing flags directly:
-#   bash scripts/start_droid.sh --no-vision          # skip camera
+#   bash scripts/start_droid.sh --no-vision          # skip HuskyLens
 #   bash scripts/start_droid.sh --debug              # verbose logs
 #   bash scripts/start_droid.sh --no-roomba          # voice only, no hardware
 #   bash scripts/start_droid.sh --voice --no-roomba  # same thing, explicit

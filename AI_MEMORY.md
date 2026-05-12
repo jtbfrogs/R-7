@@ -10,7 +10,7 @@
 Personality modelled on **BMO** (Adventure Time) and **D-O** (Star Wars IX) —
 short, quirky, slightly awkward responses. Fully offline AI via Ollama.
 
-**OS: Pop!_OS (Linux)** — not macOS, not Windows. Important for audio/serial device paths.
+**OS: Pop!_OS (Linux)** — not macOS, not Windows. Important for audio/serial paths.
 
 ---
 
@@ -22,13 +22,13 @@ short, quirky, slightly awkward responses. Fully offline AI via Ollama.
 | PC                  | Pop!_OS laptop — runs all software                  |
 | USB-UART #1         | CP2102 or FTDI FT232R **with RTS pin** → Roomba     |
 | USB-UART #2         | Any CP2102/CH340 → HuskyLens 2                      |
-| Vision sensor       | HuskyLens 2 (face/object/colour/tag recognition)    |
-| Microphone          | USB mic — **optional, can be unplugged**            |
-| Speakers            | PC speakers — **optional, sometimes not connected** |
+| Vision sensor       | **HuskyLens 2** — only vision sensor, no camera     |
+| Microphone          | USB mic — optional, can be unplugged                |
+| Speakers            | PC speakers — optional, sometimes not connected     |
 
 ### Serial port mapping (Linux)
-- Roomba → `/dev/ttyUSB0` (auto-detect prefers this)
-- HuskyLens → `/dev/ttyUSB1` (auto-detect picks the second one)
+- Roomba → `/dev/ttyUSB0` (auto-detect prefers first port)
+- HuskyLens → `/dev/ttyUSB1` (auto-detect picks second port)
 
 ### Wiring — UART #1 → Roomba 650 (Mini-DIN 7-pin)
 ```
@@ -55,51 +55,76 @@ GND → GND
 r-7/
 ├── main.py                    # Entry point — all CLI flags live here
 ├── config/
-│   ├── default_config.yaml    # Version-controlled defaults (edit this)
+│   ├── default_config.yaml    # Version-controlled defaults
 │   └── local_config.yaml      # Personal overrides (.gitignored, may not exist)
 ├── ai/
 │   ├── ollama_client.py       # Talks to local Ollama instance
 │   ├── personality.py         # Phrase banks, stutter effect, cooldowns
 │   ├── voice_chat.py          # VoiceChatManager — ties STT+TTS+AI together
-│   └── context_builder.py
+│   └── context_builder.py     # Builds compact context strings for AI prompts
 ├── audio/
-│   ├── stt_manager.py         # Speech-to-text (Vosk offline or Google)
-│   └── tts_manager.py         # Text-to-speech (pyttsx3)
-├── roomba/
-│   └── controller.py          # Roomba OI protocol, serial comms
+│   ├── stt_manager.py         # Vosk STT — wake word, RMS gate, background loop
+│   └── tts_manager.py         # pyttsx3 TTS — queued + sync speak, interrupt
 ├── huskylens/
-│   └── huskylens_manager.py   # HuskyLens polling + algorithm control
+│   ├── huskylens_manager.py   # HuskyLens polling, state, target callbacks
+│   └── protocol.py            # UART protocol implementation
+├── roomba/
+│   ├── controller.py          # Roomba OI — movement, sensors, modes
+│   ├── serial_manager.py      # Serial port open/close/wakeup
+│   ├── opcodes.py             # OI byte-level command builders
+│   └── roomba_test.py         # Interactive hardware tester
 ├── behaviors/
-│   └── behavior_manager.py    # State machine: roam/follow/search/dock
-├── vision/                    # Camera + person detection (separate from HuskyLens)
+│   └── behavior_manager.py    # State machine: ROAM/FOLLOW/SEARCH/OBSTACLE
 ├── commands/
-│   └── command_console.py     # Interactive terminal control
+│   └── command_console.py     # Full interactive terminal console
 ├── utilities/
-│   ├── constants.py           # ALL magic numbers/strings centralised here
-│   └── logger.py
-├── diagnostics/               # Health-check scripts per subsystem
-├── scripts/                   # One-off helpers (download_vosk_model.sh etc.)
-├── models/                    # Vosk model lives here (gitignored, ~40MB)
-│   └── vosk-model-small-en-us/
-└── tests/
+│   ├── constants.py           # All magic numbers/strings — edit here not in code
+│   ├── helpers.py             # clamp, jitter, truncate_words, pack_signed_16
+│   └── logger.py              # Rotating file + console logger
+├── diagnostics/
+│   ├── check_all.py           # Full system health check — run this first
+│   ├── check_huskylens.py     # HuskyLens sensor test
+│   ├── check_microphone.py    # Microphone / audio input test
+│   ├── check_ollama.py        # Ollama + model test
+│   ├── check_roomba_serial.py # Roomba serial test
+│   ├── check_tts.py           # TTS output test
+│   └── compare_models.py      # Side-by-side Ollama model comparison
+├── scripts/
+│   ├── download_vosk_model.sh # One-time Vosk model download (~40MB)
+│   ├── install_dependencies.sh# Full system + Python dep installer
+│   ├── setup_venv.sh          # venv creation only
+│   ├── start_droid.sh         # Convenience launcher (activates venv + runs main.py)
+│   └── test_chat.py           # Standalone chatbot (text or --voice, no hardware)
+├── tests/
+│   ├── test_roomba.py         # Unit tests — Roomba opcodes + helpers (no hardware)
+│   └── test_personality.py    # Unit tests — personality, stutter, cooldown
+├── docs/
+│   ├── DEBUGGING.md           # Troubleshooting guide per subsystem
+│   ├── RECOMMENDATIONS.md     # Better TTS/STT/AI options + hardware upgrades
+│   ├── ROADMAP.md             # Phase-by-phase progress tracker
+│   └── UART_GUIDE.md          # Full wiring guide
+├── models/
+│   └── vosk-model-small-en-us/  # Vosk STT model (gitignored, ~40MB)
+└── logs/
+    └── droid.log              # Rotating log (5MB max, 3 backups)
 ```
 
 ---
 
 ## Config System
 
-- **Two-file merge**: `default_config.yaml` (committed) + `local_config.yaml` (gitignored, optional)
-- Later values win. Only put overrides in local_config.
+- **Two-file merge**: `default_config.yaml` (committed) + `local_config.yaml` (gitignored)
+- Later values win. Only put overrides in `local_config.yaml`.
 - Loaded once, cached as singleton via `get_config()`.
 - Sections: `roomba`, `drive`, `huskylens`, `behavior`, `ai`, `personality`, `audio`, `logging`
 
-**Key audio config defaults:**
+**Key audio defaults:**
 ```yaml
 audio:
   tts_engine: "pyttsx3"
   stt_engine: "vosk"
   vosk_model_path: "models/vosk-model-small-en-us"
-  wake_word: ""          # ← empty = no wake word (dangerous — see bugs below)
+  wake_word: "hey r-seven"
   voice_input_enabled: true
   tts_enabled: true
 ```
@@ -109,33 +134,34 @@ audio:
 ## Voice / Audio System
 
 ### STT (Speech-to-Text)
-- **Engine**: Vosk (fully offline) — model at `models/vosk-model-small-en-us/`
-- **Wake word**: `"hey r-seven"` (defined in `utilities/constants.py` as `WAKE_WORD`)
-- **Flow**: `_listen_vosk()` → `_process_text()` → wake word check → `_callback(command)`
-- Wake word check in `_process_text()`: `if self._wake_word and self._wake_word not in text`
-  - ⚠️ Empty string is falsy — if wake_word is `""` **everything passes through**
-- `listen_once()` — synchronous, no wake word filtering, used by interactive mode
-- `set_heard_callback()` — fires for ALL speech (terminal display, pre-wake-word filter)
+- **Engine**: Vosk (fully offline), model at `models/vosk-model-small-en-us/`
+- **Wake word**: `"hey r-seven"` — set in both `default_config.yaml` AND explicitly
+  in `VoiceChatManager.init()` to avoid the empty-string bypass bug (see bugs below)
+- **RMS energy gate**: chunks below `STTManager.SILENCE_THRESHOLD = 200` are dropped
+  before Vosk sees them — prevents hallucinations from silence or monitor sources
+- **Flow**: `_listen_vosk()` → RMS check → `AcceptWaveform()` → `_process_text()`
+  → wake word check → `_callback(command)`
+- **Device logging**: STT logs the actual input device name on startup
 
 ### TTS (Text-to-Speech)
 - **Engine**: pyttsx3
-- `speak()` — async (queued)
+- `speak()` — async queued
 - `speak_sync()` — blocking
-- `interrupt()` — stops current speech immediately
+- `interrupt()` — stops mid-sentence
 
 ### VoiceChatManager (`ai/voice_chat.py`)
 - Ties STT + TTS + OllamaClient together
-- Two modes:
-  - **`run_interactive()`** — foreground blocking loop, push-to-talk or continuous
-  - **`start_background()`** — daemon thread alongside Roomba hardware
-- `use_wake_word=True/False` parameter controls whether wake word is enforced
-  - Setting `False` clears `cfg["audio"]["wake_word"]` to `""`
+- `use_wake_word=True` → explicitly sets `cfg["audio"]["wake_word"] = WAKE_WORD`
+- `use_wake_word=False` → clears wake word to `""`
+- Both `VoiceChatManager` calls in `main.py` use `use_wake_word=True`
 
 ### CLI flags
 ```
 python main.py --voice --no-roomba            # voice chat, no hardware
 python main.py --voice --no-roomba --continuous  # always-listening
-python main.py --voice                        # voice + Roomba hardware
+python main.py --voice                        # voice + Roomba + HuskyLens
+python scripts/test_chat.py                   # text chatbot, no hardware
+python scripts/test_chat.py --voice           # voice chatbot, no hardware
 ```
 
 ---
@@ -143,81 +169,66 @@ python main.py --voice                        # voice + Roomba hardware
 ## AI
 
 - **Ollama** running locally, default model: `llama3.2:1b`
-- Recommended upgrade path: `phi3:mini` > `llama3.2:3b` > `gemma2:2b` > `llama3.2:1b` > `tinyllama`
-- Hard cap: **20 words** per response (keep it droid-like)
+- Recommended: `phi3:mini` (best instruction following) or `qwen2.5:1.5b` (fastest)
+- Hard cap: **20 words** per response
 - Cooldown: 3s between responses
 - Falls back to personality phrases if Ollama unavailable
 
 ---
 
-## Known Bugs / Fixed Issues
+## Known Bugs & Fixed Issues
 
-### ✅ FIXED — Wake word disabled, R-7 transcribed ambient audio as commands
-**Date**: 2026-05-11
-**Symptom**: Every ambient sound (room noise, background conversation) was logged as a
-`Voice command received` even though nothing was spoken to R-7. On startup,
-R-7 immediately transcribed its own greeting as a voice command.
-**Root cause**: Both `VoiceChatManager` instantiations in `main.py` had
-`use_wake_word=False`, which cleared the wake word to `""`. Empty string is
-falsy so the wake word guard in `_process_text()` was silently bypassed.
-Additionally the microphone was **unplugged** — on Pop!_OS, PulseAudio/PipeWire
-silently falls back to the next available input device (e.g. built-in mic),
-so `sounddevice` never threw an error and just kept listening to ambient audio.
-**Fix**: Set `use_wake_word=True` in both `VoiceChatManager(...)` calls in `main.py`
-(hardware mode at ~line 152, voice-only mode at ~line 262).
+### ✅ FIXED — Wake word never actually worked (2026-05-11)
+Three compounding bugs meant the wake word was silently disabled:
+1. `default_config.yaml` had `wake_word: ""` — key present but empty
+2. `STTManager` uses `.get("wake_word", WAKE_WORD)` — fallback only fires if key
+   is MISSING, not when it's `""`, so `self._wake_word` was always `""`
+3. `VoiceChatManager.init()` with `use_wake_word=True` did nothing — only the
+   `False` branch had code
+**Fix**: `default_config.yaml` now has `wake_word: "hey r-seven"`. `VoiceChatManager`
+now explicitly sets the wake word either way regardless of config default.
 
----
+### ✅ FIXED — Vosk hallucinating from silence / wrong input device (2026-05-11)
+On Pop!_OS, PipeWire silently falls back to another input (built-in mic, monitor
+source) when the USB mic is unplugged. `sounddevice` gets a valid stream with no
+error. Vosk then produces hallucinated transcriptions from near-silence.
+**Fix**: RMS energy gate added to `_listen_vosk()`. Chunks below
+`SILENCE_THRESHOLD = 200` are discarded before Vosk sees them.
+STT now also logs the actual input device name on startup.
 
-## Behaviours (State Machine)
-
-States: `ROAMING` → `SEARCHING` → `FOLLOWING` → `OBSTACLE_AVOID` → `DOCKING`
-
-- Requires both Roomba **and** HuskyLens to run
-- Skipped entirely with `--no-behaviour` or if HuskyLens fails to connect
-- `BehaviorManager` lives in `behaviors/behavior_manager.py`
-
----
-
-## Personality Phrases
-
-Defined in `default_config.yaml` under `personality.phrases` — categories:
-`startup`, `person_found`, `person_lost`, `obstacle_detected`, `roaming`,
-`docking`, `confused`, `happy`, `farewell` (check file for full list).
-
-Stutter effect: `stutter_chance: 0.15` — randomly repeats a word (e.g. "H-hi!")
+### ✅ FIXED — Vosk C++ model-loading logs cluttering terminal (2026-05-11)
+`SetLogLevel(-1)` called before model load silences the VoskAPI internal logs.
 
 ---
 
 ## Running the Project
 
 ```bash
-cd /Users/jtb/src/r-7
+cd /path/to/r-7
 source venv/bin/activate
 
-# Full autonomous mode
-python main.py
+python main.py                          # full autonomous mode
+python main.py --voice                  # + always-listening voice
+python main.py --no-vision              # skip HuskyLens
+python main.py --debug                  # verbose logging
 
-# Voice chat only (no hardware needed)
-python main.py --voice --no-roomba
-
-# Always-listening voice chat
-python main.py --voice --no-roomba --continuous
-
-# Interactive terminal control
-python commands/command_console.py
-
-# Diagnostics
-python diagnostics/check_all.py
+python commands/command_console.py      # interactive terminal control
+python scripts/test_chat.py             # text chatbot (no hardware)
+python scripts/test_chat.py --voice     # voice chatbot (no hardware)
+python diagnostics/check_all.py         # full system health check
+bash scripts/start_droid.sh             # convenience launcher
 ```
 
 ---
 
-## Things Still To Do / Watch Out For
+## Gotchas
 
-- **Audio device fallback on Linux**: When USB mic is unplugged, PulseAudio silently
-  switches to another input. No error is raised by sounddevice. Would be good to add
-  a startup check that verifies the expected audio device and warns if it falls back.
-- **TTS silent sometimes**: Speaker not always connected. Should detect and warn.
-- **Wake word in config vs code**: `default_config.yaml` has `wake_word: ""` but
-  `constants.py` has `WAKE_WORD = "hey r-seven"`. The config takes precedence.
-  Consider setting `wake_word: "hey r-seven"` in default_config.yaml to be consistent.
+- **Pop!_OS audio fallback**: When USB mic is unplugged, PipeWire silently
+  switches to another input device. No error thrown. RMS gate mitigates this
+  but device name in logs will reveal if it's using the wrong source.
+- **Wake word is "hey r-seven"** — Vosk hears it as two words, no hyphen
+- **Serial port order**: Roomba must be on ttyUSB0, HuskyLens on ttyUSB1.
+  If ports swap on reboot, use stable `/dev/serial/by-id/` paths in local_config.
+- **Ollama must be running**: `ollama serve` — or set up as a systemd service
+- **dialout group**: User must be in `dialout` group for serial access.
+  Run `sudo usermod -aG dialout $USER` then **log out and back in**.

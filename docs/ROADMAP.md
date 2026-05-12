@@ -1,66 +1,63 @@
 # Development Roadmap
 
-## Phase 0 — Foundation ✅ (current)
+## Phase 0 — Foundation ✅
 - [x] Repository structure
-- [x] Config system (YAML)
+- [x] Config system (YAML, default + local override)
 - [x] Logging + rotation
 - [x] Roomba serial manager
-- [x] Roomba controller (safe/full/passive modes)
-- [x] All OI opcodes
+- [x] Roomba controller (safe/full/passive modes, all OI opcodes)
 - [x] Interactive roomba_test.py
 - [x] Serial diagnostics
 
-## Phase 1 — Basic Movement & Speech
-- [ ] Verify serial communication on real hardware
-- [ ] Test all movement commands (forward, back, spin, stop)
-- [ ] Verify sensor reads (battery, bumpers, OI mode)
-- [ ] TTS speaking via pyttsx3
-- [ ] Startup greeting works
-- [ ] command_console.py fully functional
+## Phase 1 — Basic Movement & Speech ✅
+- [x] Serial communication on real hardware
+- [x] All movement commands (forward, back, spin, stop)
+- [x] Sensor reads (battery, bumpers, OI mode)
+- [x] TTS speaking via pyttsx3
+- [x] Startup greeting
+- [x] command_console.py fully functional
 
-## Phase 2 — Vision Integration
-- [ ] Camera feed stable
-- [ ] HOG person detection working
-- [ ] Face detection working
-- [ ] VisionState flowing to BehaviorManager
-- [ ] Follow-person behaviour (basic steering)
-- [ ] Debug display window
+## Phase 2 — Vision (HuskyLens 2) ✅
+- [x] HuskyLens 2 UART protocol
+- [x] HuskyLensManager (polling, state, callbacks)
+- [x] Face recognition mode
+- [x] Object tracking mode
+- [x] Target detection flowing to BehaviorManager
+- [x] Follow-person behaviour with steering
 
-## Phase 3 — Autonomous Behaviour
-- [ ] Free roam mode with obstacle avoidance
-- [ ] Search-for-person mode
-- [ ] Behaviour state transitions smooth
-- [ ] Droid "feels alive" during testing
-- [ ] Speech reactions to state changes
+## Phase 3 — Autonomous Behaviour ✅
+- [x] Free roam mode with obstacle avoidance (bump sensors)
+- [x] Search-for-person mode (spin + timeout)
+- [x] Behaviour state machine (IDLE → ROAM → FOLLOW → SEARCH)
+- [x] Speech reactions to state transitions
 
-## Phase 4 — AI Personality
-- [ ] Ollama running with tinyllama
-- [ ] AI responses integrated into behaviour
-- [ ] Personality filter working
-- [ ] Stutter/quirks tuned
-- [ ] Voice input (Vosk + wake word)
-- [ ] Interrupt-on-speech working
+## Phase 4 — AI & Voice ✅
+- [x] Ollama integration (local LLM, fully offline)
+- [x] AI responses wired into behaviour
+- [x] Personality filter (word cap, stutter effect)
+- [x] Vosk offline STT with wake word ("hey r-seven")
+- [x] RMS energy gate (blocks silence/false triggers)
+- [x] TTS interrupt-on-speech (mic always wins)
+- [x] Voice chat mode (--voice --no-roomba)
 
 ## Phase 5 — Polish & Reliability
-- [ ] Upgrade to Piper TTS
-- [ ] Upgrade to YOLOv8n detection
-- [ ] Smooth person tracking with DeepSORT
-- [ ] Battery monitoring + low-battery dock behaviour
+- [ ] Upgrade to Piper TTS (much better voice quality)
+- [ ] Battery monitoring + low-battery auto-dock
 - [ ] Crash recovery (auto-reconnect on serial loss)
-- [ ] Web status dashboard
+- [ ] Web status dashboard (Flask, simple read-only)
+- [ ] HuskyLens algorithm hot-switching via voice command
 
 ## Phase 6 — Advanced Features
-- [ ] SLAM mapping (map the room)
-- [ ] Room memory (knows its environment)
-- [ ] Scheduled cleaning mode
-- [ ] ESP32 head/servo control
-- [ ] Droid emotion display (eyes/LED)
-- [ ] Sound packs (R2-D2 style beeps)
+- [ ] ESP32 head pan/tilt (turns toward detected person)
+- [ ] LED/OLED emotion eyes
+- [ ] Droid sound pack (R2-D2 style beeps mixed with TTS)
+- [ ] Scheduled cleaning mode (use Roomba's built-in clean)
+- [ ] Docking on low battery (OI SEEK_DOCK)
 
 ## Phase 7 — Future Horizons
-- [ ] Multi-personality support
-- [ ] Object memory ("I saw the chair there before")
-- [ ] Remote control via web interface
-- [ ] Mobile app companion
-- [ ] Jetson Orin Nano migration
-- [ ] ROS2 migration path
+- [ ] SLAM mapping (know the room layout)
+- [ ] Room memory ("I was here before")
+- [ ] Person memory (recognise and greet people by name)
+- [ ] Mobile app companion (live status + manual control)
+- [ ] Jetson Orin Nano migration (for portable + GPU inference)
+- [ ] ROS2 migration

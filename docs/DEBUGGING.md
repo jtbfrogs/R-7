@@ -85,13 +85,21 @@ Also check that the battery is charged. Low battery = no movement.
 
 ---
 
-## Camera Not Detected
+## HuskyLens Not Detected
 
 ```bash
-ls /dev/video*
-v4l2-ctl --list-devices   # requires v4l-utils
-python diagnostics/check_camera.py
-python diagnostics/check_camera.py --index 1   # try index 1
+# Check USB-UART adapters are present
+ls /dev/ttyUSB*
+
+# Run the HuskyLens diagnostic
+python diagnostics/check_huskylens.py
+
+# Check wiring — TX/RX must be CROSSED:
+#   Adapter TXD → HuskyLens RXD
+#   Adapter RXD → HuskyLens TXD
+
+# Check baud rate matches the HuskyLens device setting (default: 9600)
+# HuskyLens: General Settings → Baud Rate
 ```
 
 ---
@@ -142,7 +150,7 @@ grep ERROR logs/droid.log
 
 # Search for a subsystem
 grep "\[ROOMBA\]" logs/droid.log
-grep "\[VISION\]" logs/droid.log
+grep "\[HUSKY\]" logs/droid.log
 grep "\[AI\]" logs/droid.log
 ```
 
