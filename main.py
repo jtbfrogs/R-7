@@ -149,7 +149,7 @@ def main(args: argparse.Namespace) -> int:
             tts_rate        = 155,
             ai_client       = ai_client,
             personality     = personality,
-            use_wake_word   = False,   # no wake word needed in hardware mode
+            use_wake_word   = True,    # require "hey r-seven" to activate
         )
         if not voice_chat.init():
             log.error("Voice chat init failed — continuing without voice input")
@@ -259,7 +259,7 @@ def _run_voice_only(args: argparse.Namespace) -> int:
         tts_rate        = 155,
         ai_client       = ai_client,
         personality     = personality,
-        use_wake_word   = False,
+        use_wake_word   = True,    # require "hey r-seven" to activate
     )
 
     if not vc.init():
