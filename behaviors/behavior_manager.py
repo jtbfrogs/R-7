@@ -231,10 +231,9 @@ class BehaviorManager:
                 return   # obstacle handling takes over
 
         # ── 2. UPDATE PERSON TRACKING ────────────────────────────────────
-        # FIX: use any_target_detected (body OR face) not just person_detected.
-        # HOG full-body detection frequently misses people who are sitting,
-        # close to the camera, or partially out of frame.  The face cascade
-        # is far more reliable indoors and should also trigger following.
+        # Use any_target_detected — HuskyLens reports targets regardless of
+        # algorithm (face_recognition, object_tracking, etc.).  Always prefer
+        # this over person_detected alone for robust following.
         if vision.any_target_detected:
             self._last_person_seen = now
 
@@ -242,12 +241,9 @@ class BehaviorManager:
         # Run with --debug to see these lines in the terminal.
         if self._tick_count % 10 == 0:
             log.debug(
-                "Tick %d | state=%-13s | body=%-5s face=%-5s any=%-5s | "
-                "offset=%+.2f  fill=%.2f",
+                "Tick %d | state=%-13s | target=%-5s | offset=%+.2f  fill=%.2f",
                 self._tick_count,
                 self._state.name,
-                vision.person_detected,
-                vision.face_detected,
                 vision.any_target_detected,
                 vision.target_x_offset,
                 vision.target_fill,
@@ -295,7 +291,7 @@ class BehaviorManager:
 
     def _check_obstacle(self, vision) -> bool:
         """
-        Check for obstacles via bumpers and vision.
+        Check for obstacles via bump sensors.
         Returns True if an obstacle was found and handled.
         """
         # Check physical bump sensors

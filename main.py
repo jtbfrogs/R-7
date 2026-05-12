@@ -293,7 +293,7 @@ def _parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--port",         default=None,  help="Serial port (default: auto-detect)")
-    parser.add_argument("--no-vision",    action="store_true", help="Disable camera/vision")
+    parser.add_argument("--no-vision",    action="store_true", help="Disable HuskyLens vision sensor")
     parser.add_argument("--no-ai",        action="store_true", help="Disable Ollama AI")
     parser.add_argument("--no-behaviour", action="store_true", help="No autonomous movement")
     parser.add_argument("--debug",        action="store_true", help="Verbose debug logging")

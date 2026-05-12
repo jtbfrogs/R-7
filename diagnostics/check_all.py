@@ -132,20 +132,6 @@ def main(port: str | None = None) -> None:
     results.append(("Ollama server", ollama_ok, detail))
     print(format_check_result("Ollama server", ollama_ok, detail))
 
-    # ── GPU check ────────────────────────────────────────────────────────────
-    print("\n  GPU (optional):")
-    try:
-        import torch
-        cuda_ok = torch.cuda.is_available()
-        if cuda_ok:
-            name = torch.cuda.get_device_name(0)
-            detail = f"CUDA available — {name}"
-        else:
-            detail = "CUDA not available (CPU mode)"
-        print(format_check_result("CUDA/GPU", cuda_ok, detail))
-    except ImportError:
-        print(format_check_result("CUDA/GPU", False, "torch not installed"))
-
     # ── TTS quick test ────────────────────────────────────────────────────────
     print("\n  Audio:")
     tts_ok = check_import("pyttsx3")
@@ -174,7 +160,7 @@ def main(port: str | None = None) -> None:
     print(format_check_result("logs/ directory", logs_ok, "exists" if logs_ok else "missing"))
 
     # ── Final summary ────────────────────────────────────────────────────────
-    critical = [("Python version","Serial ports found","Can open port","Camera /dev/video0")]
+    critical = [("Python version", "Serial ports found", "Can open port")]
     critical_results = [(n,ok) for (n,ok,_) in results if n in [
         "Python version","pyserial","PyYAML","pyttsx3"
     ]]
@@ -199,6 +185,7 @@ def main(port: str | None = None) -> None:
     print(_c("    python roomba/roomba_test.py                (interactive Roomba test)", "cyan"))
     print(_c("    python commands/command_console.py          (full system console)", "cyan"))
     print(_c("    python main.py                              (launch droid)", "cyan"))
+    print(_c("    python main.py --no-vision                  (launch without HuskyLens)", "cyan"))
     print()
 
 

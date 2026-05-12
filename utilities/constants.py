@@ -94,17 +94,11 @@ class OIMode(IntEnum):
     SAFE    = 2
     FULL    = 3
 
-# ─── Vision / Camera ─────────────────────────────────────────────────────────
-DEFAULT_CAMERA_INDEX        = 0       # /dev/video0 on most Linux systems
-CAMERA_WIDTH                = 640
-CAMERA_HEIGHT               = 480
-CAMERA_FPS                  = 30
-DETECTION_CONFIDENCE_PERSON = 0.55    # minimum confidence to act on person
-DETECTION_CONFIDENCE_FACE   = 0.60
-FOLLOW_DISTANCE_THRESHOLD   = 0.35    # fraction of frame width — stop if person fills this much
-OBSTACLE_AREA_THRESHOLD     = 0.20    # fraction of frame — obstacle fills this much before stopping
-FRAME_SKIP_DETECTION        = 2       # run heavy detection every N frames (performance)
-FRAME_SKIP_TRACKING         = 1       # run lightweight tracking every N frames
+# ─── Vision / HuskyLens ──────────────────────────────────────────────────────
+# Camera-based vision (OpenCV HOG, Haar cascades, MobileNet SSD) has been
+# replaced by the HuskyLens 2 AI vision sensor.
+# Old camera constants are preserved in future_features/vision/ for reference.
+FOLLOW_DISTANCE_THRESHOLD   = 0.35    # fraction of frame width — stop if target fills this much
 
 # ─── Behavior timing ─────────────────────────────────────────────────────────
 SEARCH_TIMEOUT_SEC          = 30      # give up searching for person after N seconds

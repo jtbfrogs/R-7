@@ -590,7 +590,7 @@ if __name__ == "__main__":
         description="R-7 Droid — interactive command console",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--no-vision", action="store_true", help="Skip camera/vision")
+    parser.add_argument("--no-vision", action="store_true", help="Skip HuskyLens vision sensor")
     parser.add_argument("--no-ai",     action="store_true", help="Skip Ollama AI")
     parser.add_argument("--debug",     action="store_true", help="Verbose logging")
     parser.add_argument("--port",      default=None,        help="Serial port override")
