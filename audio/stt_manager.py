@@ -269,6 +269,8 @@ class STTManager:
                 return False
 
             log.info("Loading Vosk model from %s …", self._vosk_path)
+            from vosk import SetLogLevel
+            SetLogLevel(-1)  # silence Vosk's internal C++ model-loading logs
             self._model = Model(self._vosk_path)
             self._recogniser = KaldiRecognizer(self._model, 16000)
             log.info("Vosk model loaded from %s", self._vosk_path)
