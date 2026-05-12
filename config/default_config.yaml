@@ -48,35 +48,36 @@ drive:
   search_spin_speed: 150  # slow spin during person-search mode
   max_speed:       400    # hard cap — clamp any request above this
 
-# ─── Vision / Camera ────────────────────────────────────────────────────────
-vision:
-  camera_index: 0          # 0 = /dev/video0, 1 = second camera, etc.
-  width:  640
-  height: 480
-  fps:    30
+# ─── HuskyLens 2 (AI vision sensor) ─────────────────────────────────────────
+huskylens:
+  # Serial port where the USB-UART adapter appears.
+  # Leave as "auto" to let the software pick it (prefers the 2nd ttyUSB port
+  # so it doesn't conflict with the Roomba adapter on ttyUSB0).
+  # Override example:  /dev/ttyUSB1
+  port: "auto"
 
-  # Detection confidence thresholds (0.0 – 1.0)
-  # Lower = more detections but more false positives
-  # Higher = fewer but more accurate
-  person_confidence: 0.55
-  face_confidence:   0.60
+  # Must match the baud rate set on the HuskyLens itself:
+  #   HuskyLens → General Settings → Baud Rate
+  # Default on the device is 9600.  115200 is faster but needs manual change.
+  baud_rate: 9600
 
-  # If a detected person occupies more than this fraction of frame width,
-  # the droid considers itself "close enough" and stops approaching
+  # How often to poll the HuskyLens for new detections (Hz)
+  poll_hz: 10
+
+  # Active algorithm — controls what the HuskyLens looks for.
+  # Must also be selected on the device's home screen.
+  #
+  #   face_recognition     — detects/tracks faces  (best for person following)
+  #   object_tracking      — tracks whatever you show it after pressing Learn
+  #   object_recognition   — recognises trained object categories
+  #   line_tracking        — follows a line on the ground
+  #   color_recognition    — tracks a specific colour
+  #   tag_recognition      — reads April Tags / QR-style markers
+  #   object_classification— classifies objects by category
+  algorithm: "face_recognition"
+
+  # Stop approaching when the target fills this fraction of the frame width
   follow_stop_distance: 0.35
-
-  # If an obstacle fills more than this fraction of the frame, stop moving
-  obstacle_stop_area: 0.20
-
-  # Run expensive detection every N frames to save CPU
-  # Tracking (cheaper) still runs every frame
-  detection_frame_skip: 2
-
-  # Enable/disable vision subsystems individually
-  enable_person_detection: true
-  enable_face_detection:   true
-  enable_obstacle_detection: true
-  enable_motion_tracking:  false   # future feature
 
 # ─── Behaviour timers ───────────────────────────────────────────────────────
 behavior:

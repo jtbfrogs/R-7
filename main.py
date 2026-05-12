@@ -9,7 +9,7 @@ behaviour manager, and handles clean shutdown on Ctrl+C or errors.
 Usage
 ─────
     python main.py                              # full autonomous mode
-    python main.py --no-vision                  # run without camera
+    python main.py --no-vision                  # run without HuskyLens
     python main.py --no-ai                      # run without Ollama
     python main.py --no-behaviour               # connect + speak, no movement
     python main.py --port /dev/ttyUSB0          # override serial port
@@ -38,7 +38,7 @@ import signal
 import argparse
 
 from roomba.controller          import RoombaController
-from vision.vision_manager      import VisionManager
+from huskylens.huskylens_manager import HuskyLensManager
 from ai.personality             import Personality
 from ai.ollama_client           import OllamaClient
 from ai.voice_chat              import VoiceChatManager
@@ -92,9 +92,9 @@ def main(args: argparse.Namespace) -> int:
     tts         = TTSManager()
     personality = Personality()
     ai_client   = OllamaClient()
-    vision:     VisionManager  | None = None
-    stt:        STTManager     | None = None
-    behavior:   BehaviorManager | None = None
+    husky:      HuskyLensManager | None = None
+    stt:        STTManager       | None = None
+    behavior:   BehaviorManager  | None = None
     voice_chat: VoiceChatManager | None = None
 
     # ─── Shutdown handler ────────────────────────────────────────────────────
@@ -123,15 +123,15 @@ def main(args: argparse.Namespace) -> int:
         return 1
     log.info("Roomba connected in %s mode", roomba.state.name)
 
-    # ─── Start Vision ────────────────────────────────────────────────────────
+    # ─── Start HuskyLens ─────────────────────────────────────────────────────
     if not args.no_vision:
-        log.info("[3/5] Starting vision system...")
-        vision = VisionManager()
-        if not vision.start():
-            log.warning("Vision failed — running without camera")
-            vision = None
+        log.info("[3/5] Starting HuskyLens sensor...")
+        husky = HuskyLensManager()
+        if not husky.start():
+            log.warning("HuskyLens failed — running without vision")
+            husky = None
         else:
-            log.info("Vision system running")
+            log.info("HuskyLens running — algorithm: %s", husky.current_algorithm)
 
     # ─── Check AI ────────────────────────────────────────────────────────────
     if not args.no_ai:
@@ -180,18 +180,18 @@ def main(args: argparse.Namespace) -> int:
         stt.start()
 
     # ─── Start Behaviours ────────────────────────────────────────────────────
-    if not args.no_behaviour and vision:
+    if not args.no_behaviour and husky:
         log.info("[5/5] Starting behaviour manager...")
         behavior = BehaviorManager(
             roomba      = roomba,
-            vision      = vision,
+            husky       = husky,
             tts         = tts,
             personality = personality,
             ai_client   = ai_client if not args.no_ai else None,
         )
         behavior.start()
     else:
-        log.info("[5/5] Behaviour manager skipped (--no-behaviour or no vision)")
+        log.info("[5/5] Behaviour manager skipped (--no-behaviour or no HuskyLens)")
 
     # ─── Startup greeting ────────────────────────────────────────────────────
     greeting = personality.greeting()
@@ -212,10 +212,10 @@ def main(args: argparse.Namespace) -> int:
         if now - last_heartbeat >= heartbeat_interval:
             last_heartbeat = now
             b_state = behavior.state.name if behavior else "N/A"
-            v_state = "person" if (vision and vision.get_vision_state().person_detected) else "none"
+            h_state = "target" if (husky and husky.get_state().any_target_detected) else "none"
             log.info(
-                "Heartbeat | Roomba: %s | Behaviour: %s | Vision: %s",
-                roomba.state.name, b_state, v_state
+                "Heartbeat | Roomba: %s | Behaviour: %s | HuskyLens: %s",
+                roomba.state.name, b_state, h_state,
             )
 
         time.sleep(0.1)
@@ -228,8 +228,8 @@ def main(args: argparse.Namespace) -> int:
 
     if behavior:
         behavior.stop()
-    if vision:
-        vision.stop()
+    if husky:
+        husky.stop()
     if voice_chat:
         voice_chat.stop()
     if stt:

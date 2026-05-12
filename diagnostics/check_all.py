@@ -40,12 +40,11 @@ def main(port: str | None = None) -> None:
 
     # ── Core dependencies ─────────────────────────────────────────────────────
     deps = [
-        ("pyserial",        "serial",              "pip install pyserial"),
-        ("PyYAML",          "yaml",                "pip install pyyaml"),
-        ("opencv-python",   "cv2",                 "pip install opencv-python"),
-        ("numpy",           "numpy",               "pip install numpy"),
-        ("pyttsx3",         "pyttsx3",             "pip install pyttsx3"),
-        ("httpx",           "httpx",               "pip install httpx"),
+        ("pyserial",        "serial",   "pip install pyserial"),
+        ("PyYAML",          "yaml",     "pip install pyyaml"),
+        ("numpy",           "numpy",    "pip install numpy"),
+        ("pyttsx3",         "pyttsx3",  "pip install pyttsx3"),
+        ("httpx",           "httpx",    "pip install httpx"),
     ]
 
     print("  Core dependencies:")
@@ -91,18 +90,31 @@ def main(port: str | None = None) -> None:
     else:
         print(format_check_result("Target port", False, "no port detected"))
 
-    # ── Camera check ──────────────────────────────────────────────────────────
-    print("\n  Camera:")
-    try:
-        import cv2
-        cap = cv2.VideoCapture(0)
-        cam_ok = cap.isOpened()
-        cap.release()
-        results.append(("Camera /dev/video0", cam_ok, "opened OK" if cam_ok else "cannot open"))
-        print(format_check_result("Camera (index 0)", cam_ok, "opened OK" if cam_ok else "cannot open"))
-    except Exception as e:
-        results.append(("Camera", False, str(e)[:40]))
-        print(format_check_result("Camera", False, str(e)[:40]))
+    # ── HuskyLens check ───────────────────────────────────────────────────────
+    print("\n  HuskyLens 2:")
+    hl_ports = [p for p in ports if "USB" in p or "ACM" in p]
+    hl_port  = hl_ports[1] if len(hl_ports) >= 2 else (hl_ports[0] if hl_ports else None)
+    if hl_port:
+        try:
+            import serial as _s
+            from huskylens.protocol import HuskyProtocol
+            import time as _t
+            hl_ser = _s.Serial(hl_port, baudrate=9600, timeout=0.5)
+            _t.sleep(0.3)
+            hl_proto = HuskyProtocol(hl_ser)
+            hl_ok = any(hl_proto.knock() for _ in range(3))
+            hl_ser.close()
+            results.append(("HuskyLens knock", hl_ok,
+                             "responded" if hl_ok else "no response — check wiring/baud"))
+            print(format_check_result("HuskyLens knock", hl_ok,
+                                      f"{hl_port} — {'OK' if hl_ok else 'no response'}"))
+        except Exception as e:
+            results.append(("HuskyLens", False, str(e)[:50]))
+            print(format_check_result("HuskyLens", False, str(e)[:50]))
+    else:
+        print(format_check_result("HuskyLens port", False, "no USB-UART adapter found"))
+    print(format_check_result("HuskyLens full test", True,
+                               "run: python diagnostics/check_huskylens.py"))
 
     # ── Ollama check ──────────────────────────────────────────────────────────
     print("\n  AI (Ollama):")
@@ -164,7 +176,7 @@ def main(port: str | None = None) -> None:
     # ── Final summary ────────────────────────────────────────────────────────
     critical = [("Python version","Serial ports found","Can open port","Camera /dev/video0")]
     critical_results = [(n,ok) for (n,ok,_) in results if n in [
-        "Python version","pyserial","PyYAML","opencv-python","pyttsx3"
+        "Python version","pyserial","PyYAML","pyttsx3"
     ]]
     failed_critical = [n for n,ok in critical_results if not ok]
 
@@ -182,7 +194,8 @@ def main(port: str | None = None) -> None:
 
     print()
     print("  Next steps:")
-    print(_c("    python diagnostics/check_roomba_serial.py   (test serial)", "cyan"))
+    print(_c("    python diagnostics/check_roomba_serial.py   (Roomba serial test)", "cyan"))
+    print(_c("    python diagnostics/check_huskylens.py       (HuskyLens sensor test)", "cyan"))
     print(_c("    python roomba/roomba_test.py                (interactive Roomba test)", "cyan"))
     print(_c("    python commands/command_console.py          (full system console)", "cyan"))
     print(_c("    python main.py                              (launch droid)", "cyan"))

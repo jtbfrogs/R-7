@@ -12,13 +12,12 @@ Example output
     "Person visible left. Battery 78%. Safe mode. No obstacle."
 """
 
-from typing import Optional
-from vision.vision_manager import VisionState
-from roomba.controller import RoombaController, ControllerState
+from typing import Any, Optional
+from roomba.controller import RoombaController
 
 
 def build_context(
-    vision:  Optional[VisionState]    = None,
+    vision:  Any                        = None,   # HuskyLensState or any duck-compatible
     roomba:  Optional[RoombaController] = None,
     extra:   str = "",
 ) -> str:
@@ -27,7 +26,7 @@ def build_context(
 
     Parameters
     ----------
-    vision : latest VisionState from VisionManager
+    vision : HuskyLensState (or any object with person_detected/target_x_offset/target_fill)
     roomba : the RoombaController (for mode, battery, bumpers)
     extra  : any freeform string to append
 

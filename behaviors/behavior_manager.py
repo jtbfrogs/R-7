@@ -45,9 +45,9 @@ import random
 from enum import Enum, auto
 from typing import Optional
 
-from roomba.controller       import RoombaController
-from vision.vision_manager   import VisionManager
-from ai.personality          import Personality
+from roomba.controller              import RoombaController
+from huskylens.huskylens_manager    import HuskyLensManager
+from ai.personality                 import Personality
 from ai.ollama_client        import OllamaClient
 from ai.context_builder      import build_context
 from audio.tts_manager       import TTSManager
@@ -95,14 +95,14 @@ class BehaviorManager:
 
     def __init__(
         self,
-        roomba:     RoombaController,
-        vision:     VisionManager,
-        tts:        TTSManager,
+        roomba:      RoombaController,
+        husky:       HuskyLensManager,
+        tts:         TTSManager,
         personality: Personality,
-        ai_client:  Optional[OllamaClient] = None,
+        ai_client:   Optional[OllamaClient] = None,
     ):
         self._roomba     = roomba
-        self._vision     = vision
+        self._vision     = husky   # internal name kept for minimal diff
         self._tts        = tts
         self._personality = personality
         self._ai         = ai_client
@@ -131,7 +131,7 @@ class BehaviorManager:
         self._roam_turn_dur    = self._cfg.get("roam_turn_duration_sec", ROAM_TURN_DURATION_SEC)
         self._obs_backup       = self._cfg.get("obstacle_backup_sec",  OBSTACLE_BACKUP_SEC)
         self._obs_turn         = self._cfg.get("obstacle_turn_sec",    OBSTACLE_TURN_SEC)
-        self._follow_stop_dist = get_config()["vision"].get("follow_stop_distance", FOLLOW_DISTANCE_THRESHOLD)
+        self._follow_stop_dist = get_config()["huskylens"].get("follow_stop_distance", FOLLOW_DISTANCE_THRESHOLD)
 
         # Bumper polling: reading sensors every tick hammers the serial bus.
         # Only query bumpers every BUMPER_POLL_EVERY ticks (every 500 ms at 10 Hz).

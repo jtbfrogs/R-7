@@ -7,9 +7,6 @@ pyserial>=3.5          # Roomba UART communication
 pyyaml>=6.0            # Config file loading
 numpy>=1.24            # Array math (used by vision)
 
-# ── Vision ────────────────────────────────────────────────────────────────────
-opencv-python>=4.8     # Camera, detection, drawing
-
 # ── AI / HTTP ─────────────────────────────────────────────────────────────────
 httpx>=0.25            # HTTP client for Ollama API
 

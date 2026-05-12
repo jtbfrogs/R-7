@@ -31,9 +31,10 @@ import argparse
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from roomba.controller          import RoombaController
-from vision.vision_manager      import VisionManager
-from ai.personality             import Personality
+from roomba.controller              import RoombaController
+from huskylens.huskylens_manager    import HuskyLensManager
+from huskylens.protocol             import ALGO_IDS
+from ai.personality                 import Personality
 from ai.ollama_client           import OllamaClient
 from audio.tts_manager          import TTSManager
 from audio.stt_manager          import STTManager
@@ -103,7 +104,11 @@ HELP_TEXT = """
 ├─────────────────┼───────────────────────────────────────────────────┤
 │ BEHAVIOURS      │ roam   follow   search   idle                     │
 ├─────────────────┼───────────────────────────────────────────────────┤
-│ VISION          │ vision-debug   vision-status                      │
+│ HUSKYLENS       │ husky                (one-line sensor status)     │
+│                 │ husky-algo <name>    (switch algorithm)           │
+│                 │   algorithms: face_recognition  object_tracking   │
+│                 │              color_recognition  tag_recognition   │
+│                 │              line_tracking  object_recognition    │
 ├─────────────────┼───────────────────────────────────────────────────┤
 │ AI / SPEECH     │ ask <question>   say <text>   ai-status           │
 │                 │ mute   unmute                                     │
@@ -114,7 +119,19 @@ HELP_TEXT = """
 Live feed lines appear automatically:
   🔊 SPEAKING  — everything the droid says out loud
   🎤 HEARD     — everything the microphone picks up (if STT is enabled)
+  🎯 HUSKY     — target acquired / lost (fires only on state change)
 """
+
+
+def _on_husky_target(detected: bool, state) -> None:
+    """Fires once when HuskyLens target is acquired or lost."""
+    if detected:
+        algo  = state.algorithm.replace("_", " ")
+        count = state.target_count
+        pos   = "left" if state.target_x_offset < -0.2 else "right" if state.target_x_offset > 0.2 else "center"
+        _live("🎯", "HUSKY", f"acquired — {algo}, {count} target{'s' if count != 1 else ''}, {pos}", "green")
+    else:
+        _live("🎯", "HUSKY", "target lost", "yellow")
 
 
 class DroidConsole:
@@ -123,12 +140,12 @@ class DroidConsole:
     def __init__(self, args: argparse.Namespace) -> None:
         self._args       = args
         self._roomba     = RoombaController()
-        self._vision:    VisionManager   | None = None
+        self._husky:     HuskyLensManager | None = None
         self._tts        = TTSManager()
-        self._stt:       STTManager      | None = None
+        self._stt:       STTManager       | None = None
         self._personality = Personality()
         self._ai         = OllamaClient()
-        self._behavior:  BehaviorManager | None = None
+        self._behavior:  BehaviorManager  | None = None
         self._muted      = False
 
     # ─── Startup ─────────────────────────────────────────────────────────────
@@ -160,15 +177,16 @@ class DroidConsole:
             return False
         _ok(f"Roomba connected — {self._roomba.state.name} mode")
 
-        # ── Vision ──────────────────────────────────────────────────────────
+        # ── HuskyLens ───────────────────────────────────────────────────────
         if not self._args.no_vision:
-            _info("Starting vision system...")
-            self._vision = VisionManager()
-            if self._vision.start():
-                _ok("Vision running")
+            _info("Starting HuskyLens sensor...")
+            self._husky = HuskyLensManager()
+            self._husky.set_target_callback(_on_husky_target)
+            if self._husky.start():
+                _ok(f"HuskyLens running — algorithm: {self._husky.current_algorithm}")
             else:
-                _warn("Vision failed — no camera")
-                self._vision = None
+                _warn("HuskyLens failed — check wiring and port config")
+                self._husky = None
 
         # ── AI ──────────────────────────────────────────────────────────────
         if not self._args.no_ai:
@@ -205,10 +223,10 @@ class DroidConsole:
             _info("Voice input disabled (set voice_input_enabled: true in config)")
 
         # ── Behaviours ──────────────────────────────────────────────────────
-        if self._vision:
+        if self._husky:
             self._behavior = BehaviorManager(
                 roomba      = self._roomba,
-                vision      = self._vision,
+                husky       = self._husky,
                 tts         = self._tts,
                 personality = self._personality,
                 ai_client   = self._ai if not self._args.no_ai else None,
@@ -254,8 +272,8 @@ class DroidConsole:
         _section("Shutting down")
         if self._behavior:
             self._behavior.stop()
-        if self._vision:
-            self._vision.stop()
+        if self._husky:
+            self._husky.stop()
         if self._stt:
             self._stt.stop()
         self._tts.stop()
@@ -391,21 +409,21 @@ class DroidConsole:
                     self._behavior.start()
                 _ok("Free roam mode")
             else:
-                _fail("No vision — behaviour system not running")
+                _fail("No HuskyLens — behaviour system not running")
 
         elif cmd == "follow":
             if self._behavior:
                 self._behavior.force_state(BehaviorState.FOLLOW_PERSON)
                 _ok("Follow person mode")
             else:
-                _fail("No vision — cannot follow")
+                _fail("No HuskyLens — cannot follow")
 
         elif cmd == "search":
             if self._behavior:
                 self._behavior.force_state(BehaviorState.SEARCH_PERSON)
                 _ok("Search mode")
             else:
-                _fail("No vision available")
+                _fail("No HuskyLens available")
 
         elif cmd == "idle":
             if self._behavior:
@@ -413,27 +431,40 @@ class DroidConsole:
             r.stop()
             _ok("Idle — behaviours stopped, Roomba halted")
 
-        # ── Vision ──────────────────────────────────────────────────────────
-        elif cmd == "vision-debug":
-            if self._vision:
-                self._vision.enable_debug_display(True)
-                _ok("Vision window opened — press q in the window to close")
+        # ── HuskyLens ───────────────────────────────────────────────────────
+        elif cmd == "husky":
+            if self._husky:
+                s = self._husky.get_state()
+                tgt  = _c("YES", "green") if s.any_target_detected else _c("no", "dim")
+                algo = s.algorithm.replace("_", " ")
+                pos  = ""
+                if s.any_target_detected:
+                    side = ("left" if s.target_x_offset < -0.2
+                            else "right" if s.target_x_offset > 0.2
+                            else "center")
+                    dist = ("close" if s.target_fill > 0.5
+                            else "medium" if s.target_fill > 0.2
+                            else "far")
+                    pos = f"  {side}, {dist}  id={s.target_id}  count={s.target_count}"
+                _ok(f"algo={algo}  target={tgt}{pos}  frames={s.frame_count}")
             else:
-                _fail("Vision not running")
+                _fail("HuskyLens not running")
 
-        elif cmd == "vision-status":
-            if self._vision:
-                vs = self._vision.get_vision_state()
-                _ok(
-                    f"body={vs.person_detected}  "
-                    f"face={vs.face_detected}  "
-                    f"any={vs.any_target_detected}  "
-                    f"offset={vs.target_x_offset:+.2f}  "
-                    f"fill={vs.target_fill:.2f}  "
-                    f"frames={vs.frame_count}"
-                )
+        elif cmd == "husky-algo":
+            if not self._husky:
+                _fail("HuskyLens not running")
+                return
+            name = args[0].lower() if args else ""
+            if not name:
+                _warn(f"Usage: husky-algo <name>")
+                _info(f"Available: {', '.join(ALGO_IDS)}")
+                return
+            if self._husky.set_algorithm(name):
+                _ok(f"Algorithm → {name}")
+                _info("Also select the matching algorithm on the HuskyLens screen")
             else:
-                _fail("Vision not running")
+                _fail(f"Unknown algorithm: {name!r}")
+                _info(f"Available: {', '.join(ALGO_IDS)}")
 
         # ── AI / Speech ──────────────────────────────────────────────────────
         elif cmd == "ask":
@@ -512,8 +543,9 @@ class DroidConsole:
 
         # Roomba
         print(f"    Roomba    : {_c(status['state'], 'cyan')}")
-        batt_c = "green" if status["battery_pct"] > 30 else "yellow" if status["battery_pct"] > 10 else "red"
-        print(f"    Battery   : {_c(f\"{status['battery_pct']:.1f}%\", batt_c)}"
+        batt_c   = "green" if status["battery_pct"] > 30 else "yellow" if status["battery_pct"] > 10 else "red"
+        batt_str = f"{status['battery_pct']:.1f}%"
+        print(f"    Battery   : {_c(batt_str, batt_c)}"
               f"  ({status['voltage_mv']} mV)")
 
         # Behaviour
@@ -523,16 +555,17 @@ class DroidConsole:
         else:
             print(f"    Behaviour : {_c('not running', 'dim')}")
 
-        # Vision
-        if self._vision:
-            vs = self._vision.get_vision_state()
-            tgt = "PERSON" if vs.any_target_detected else "none"
-            tgt_c = "green" if vs.any_target_detected else "dim"
-            print(f"    Vision    : target={_c(tgt, tgt_c)}"
-                  f"  offset={vs.target_x_offset:+.2f}"
-                  f"  frames={vs.frame_count}")
+        # HuskyLens
+        if self._husky:
+            hs   = self._husky.get_state()
+            tgt  = "TARGET" if hs.any_target_detected else "none"
+            tgt_c = "green" if hs.any_target_detected else "dim"
+            algo = hs.algorithm.replace("_", " ")
+            print(f"    HuskyLens : algo={algo}  target={_c(tgt, tgt_c)}"
+                  f"  offset={hs.target_x_offset:+.2f}"
+                  f"  frames={hs.frame_count}")
         else:
-            print(f"    Vision    : {_c('not running', 'dim')}")
+            print(f"    HuskyLens : {_c('not running', 'dim')}")
 
         # AI
         ai_info = self._ai.get_model_info()

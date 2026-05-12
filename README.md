@@ -36,17 +36,18 @@ Personality inspired by **BMO** (Adventure Time) and **D-O** (Star Wars IX).
 
 ## Hardware Requirements
 
-| Component        | Notes                                          |
-|------------------|------------------------------------------------|
-| Roomba 650       | The base robot                                 |
-| PC / Laptop      | Runs the software (Linux Pop!_OS recommended)  |
-| USB-UART adapter | CP2102 or FTDI FT232R (needs RTS pin!)         |
-| Mini-DIN 7 cable | Or build your own from the Roomba connector    |
-| USB Webcam       | Any USB webcam; Logitech C920 recommended      |
-| USB Microphone   | Optional (for voice commands)                  |
-| PC Speakers      | Optional (TTS output)                          |
+| Component             | Notes                                                         |
+|-----------------------|---------------------------------------------------------------|
+| Roomba 650            | The base robot                                                |
+| PC / Laptop           | Runs the software — **Pop!_OS** (Pop OS, Ubuntu-based)       |
+| USB-UART adapter #1   | CP2102 or FTDI FT232R with **RTS pin** — connects to Roomba  |
+| USB-UART adapter #2   | Any USB-UART (CP2102 / CH340) — connects to HuskyLens 2      |
+| Mini-DIN 7 cable      | Or build your own from the Roomba connector                   |
+| HuskyLens 2           | AI vision sensor (face/object/colour/tag recognition)         |
+| USB Microphone        | Optional (for voice commands)                                 |
+| PC Speakers           | Optional (TTS output)                                         |
 
-### Wiring (UART to Roomba)
+### Wiring (UART adapter #1 → Roomba 650)
 
 ```
 USB-UART Adapter    →    Roomba 650 (Mini-DIN 7-pin)
@@ -60,6 +61,33 @@ RTS                 →    Pin 7 (RTS — wakeup)
 > ⚠️ **Do NOT connect** to Roomba pins 1 or 2 (raw battery voltage, ~14.4V)
 
 Full wiring guide: [`docs/UART_GUIDE.md`](docs/UART_GUIDE.md)
+
+### Wiring (UART adapter #2 → HuskyLens 2)
+
+The HuskyLens 2 UART header exposes: **TXD · RXD · GND · 3V3 · 5V**
+
+```
+USB-UART Adapter    →    HuskyLens 2
+─────────────────────────────────────
+TXD                 →    RXD
+RXD                 →    TXD
+GND                 →    GND
+3V3  (or 5V)        →    3V3  (or 5V — match adapter voltage)
+```
+
+> ⚠️ **TX/RX must be crossed** — adapter TXD → sensor RXD, adapter RXD → sensor TXD.
+
+### HuskyLens 2 setup (one-time, on the device)
+
+1. Power on the HuskyLens 2
+2. Press the **Function** button and navigate to **General Settings**
+3. Set **Protocol Type** → `UART`
+4. Set **Baud Rate** → `9600` (must match `config/default_config.yaml`)
+5. Return to the home screen and select an algorithm:
+   - **Face Recognition** — best for person following (recommended default)
+   - **Object Tracking** — track whatever you show it after pressing Learn
+   - others: colour, tag, line, object classification
+6. To train a face/object: press the **Learn** button while pointing at the target
 
 ---
 
@@ -130,11 +158,15 @@ python roomba/roomba_test.py
 [SAFE] > status
 ```
 
-### Step 2: Test Vision
+### Step 2: Test HuskyLens
 
 ```bash
-python diagnostics/check_camera.py
+python diagnostics/check_huskylens.py
 ```
+
+This performs the handshake, switches to the configured algorithm, and runs a
+10-second live detection loop showing position, size, and object ID in real time.
+Pass `--port /dev/ttyUSB1` or `--baud 115200` to override defaults.
 
 ### Step 3: Test AI
 
@@ -186,10 +218,11 @@ r-7/
 │   ├── opcodes.py             ← OI byte-sequence builders
 │   └── roomba_test.py         ← Interactive serial test console
 │
-├── vision/                    ← Computer vision
-│   ├── camera_manager.py      ← Background webcam capture thread
-│   ├── person_detector.py     ← HOG + face cascade (+ optional PyTorch)
-│   └── vision_manager.py      ← Coordinator — exposes VisionState
+├── huskylens/                 ← HuskyLens 2 AI vision sensor
+│   ├── protocol.py            ← Low-level UART binary protocol
+│   └── huskylens_manager.py   ← Manager — exposes HuskyLensState
+│
+├── vision/                    ← Legacy OpenCV vision (kept for reference)
 │
 ├── ai/                        ← AI / personality
 │   ├── personality.py         ← Speech quirks, phrases, cooldowns
@@ -214,7 +247,7 @@ r-7/
 ├── diagnostics/               ← Standalone health check scripts
 │   ├── check_all.py           ← Run all checks
 │   ├── check_roomba_serial.py ← Deep serial diagnostic
-│   ├── check_camera.py        ← Camera test with live display
+│   ├── check_huskylens.py     ← HuskyLens sensor test with live display
 │   ├── check_ollama.py        ← AI availability + inference test
 │   ├── check_tts.py           ← TTS speech test
 │   └── check_microphone.py    ← Microphone level test
@@ -249,7 +282,12 @@ To override without touching the defaults, create `config/local_config.yaml`:
 # config/local_config.yaml  (this file is .gitignored)
 
 roomba:
-  port: "/dev/ttyUSB0"   # your actual serial port
+  port: "/dev/ttyUSB0"   # Roomba adapter port
+
+huskylens:
+  port: "/dev/ttyUSB1"   # HuskyLens adapter port (second adapter)
+  baud_rate: 9600        # must match HuskyLens device setting
+  algorithm: "face_recognition"   # or: object_tracking, color_recognition, …
 
 ai:
   model: "phi3:mini"     # better model if you have RAM
@@ -283,11 +321,13 @@ Adjustable in config under `personality.phrases` and `personality.stutter_chance
 
 | Symptom | Fix |
 |---------|-----|
-| "No serial ports found" | Check USB adapter, run `ls /dev/ttyUSB*` |
+| "No serial ports found" | Check USB adapters, run `ls /dev/ttyUSB*` |
 | "Permission denied" on port | `sudo usermod -aG dialout $USER` then log out |
 | Roomba doesn't respond | Run `python diagnostics/check_roomba_serial.py` |
 | RTS wakeup fails | Try a different adapter (CP2102/FTDI recommended) |
-| Camera not detected | `python diagnostics/check_camera.py --index 1` |
+| HuskyLens handshake fails | Check TX/RX crossed; baud matches device setting |
+| HuskyLens no detections | Select correct algorithm on device home screen |
+| HuskyLens on wrong port | Set `huskylens.port: /dev/ttyUSB1` in local_config.yaml |
 | Ollama slow/unavailable | `ollama serve`, try tinyllama model |
 | No sound | `sudo apt install espeak`, run `python diagnostics/check_tts.py` |
 
@@ -301,7 +341,7 @@ See [`future_features/FUTURE_IDEAS.md`](future_features/FUTURE_IDEAS.md) and
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 Highlights:
-- YOLOv8n person detection
+- HuskyLens 2 additional algorithms (tag, colour, custom object classes)
 - Piper neural TTS
 - ESP32 servo head movement
 - LED emotion eyes
@@ -324,7 +364,7 @@ communicate via shared state objects — not direct calls.
               ┌────────────┼─────────────────┐
               ▼            ▼                 ▼
     ┌──────────────┐  ┌──────────┐   ┌────────────┐
-    │  Roomba      │  │  Vision  │   │   Audio    │
+    │  Roomba      │  │ HuskyLens│   │   Audio    │
     │  Controller  │  │  Manager │   │  TTS + STT │
     └──────┬───────┘  └────┬─────┘   └─────┬──────┘
            │               │               │
